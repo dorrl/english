@@ -143,12 +143,12 @@ function buildArena() {
   addStaticSegment(new THREE.Vector3(3, -2.9, 66), new THREE.Vector3(-2, -3.9, 78), 5.8, 0x24586b);
   addStaticSegment(new THREE.Vector3(-2, -3.9, 78), new THREE.Vector3(0, -5.0, 91), 6.2, 0x28536a);
   addStaticSegment(new THREE.Vector3(0, -5.0, 91), new THREE.Vector3(0, -6.0, 102), 7, 0x2a5065, false);
-  addBoostPad(new THREE.Vector3(-3.4, -.62, 37), 0x6de8d7);
-  addBoostPad(new THREE.Vector3(2.5, -2.45, 61), 0x9a8cff);
+  addBoostPad(new THREE.Vector3(-3.4, -.35, 37), 0x6de8d7);
+  addBoostPad(new THREE.Vector3(2.5, -2.28, 61), 0x9a8cff);
   addBoostPad(new THREE.Vector3(-.8, -4.35, 86), 0xffcf70);
   addSweeper(new THREE.Vector3(-3.5, -1.35, 45), 4.5, 1.05);
   addSweeper(new THREE.Vector3(2.6, -3.15, 69), 4.7, 1.35);
-  addBumper(new THREE.Vector3(-1.5, -.8, 25), .8, 0xffb46b);
+  addBumper(new THREE.Vector3(-1.5, .3, 25), .8, 0xffb46b);
   addBumper(new THREE.Vector3(-4.1, -1.75, 49), .8, 0x9e8cff);
   addBumper(new THREE.Vector3(2.2, -2.7, 63), .72, 0x69e3d1);
   addBumper(new THREE.Vector3(-1.5, -4.4, 82), .85, 0xff9b6b);
@@ -173,7 +173,7 @@ function buildArena() {
 function setupScene() {
   scene = new THREE.Scene(); scene.background = new THREE.Color(0x080e1a); scene.fog = new THREE.Fog(0x080e1a, 30, 75);
   camera = new THREE.PerspectiveCamera(48, viewport.clientWidth / viewport.clientHeight, .1, 140);
-  camera.position.set(17, 18, 25);
+  camera.position.set(25, 28, 8);
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8)); renderer.setSize(viewport.clientWidth, viewport.clientHeight);
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
@@ -374,7 +374,7 @@ function resetArena(fromStart = false) {
   feedEntries = 0; finishCount = 0; winnerShown = false; elapsed = 0; eventClock = 0;
   document.body.classList.remove("race-mode");
   cameraMode = "pack"; $("camera-mode").textContent = "CAM: PACK";
-  camera.position.set(18, 19, 4); cameraTarget.set(0, 1, 38); controls.target.copy(cameraTarget); controls.update();
+  camera.position.set(25, 28, 8); cameraTarget.set(0, -1, 45); controls.target.copy(cameraTarget); controls.update();
   setStatus("ARENA READY"); startButton.disabled = !ready || starting; resetButton.disabled = true;
   if (resizeObserver) requestAnimationFrame(() => resize());
 }
