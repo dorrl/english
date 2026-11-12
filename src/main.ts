@@ -265,8 +265,8 @@ function recoverRacer(racer: Racer) {
   if (racer.recovered || racer.finishedAt !== null) return;
   racer.recovered = true;
   const slot = racers.indexOf(racer);
-  racer.body.setTranslation({ x: (slot % 5 - 2) * .55, y: 1.2, z: 14 + (slot % 4) * .55 }, true);
-  racer.body.setLinvel({ x: 0, y: 0, z: 5.5 }, true);
+  racer.body.setTranslation({ x: (slot % 5 - 2) * .58, y: -6.15, z: 87 + (slot % 4) * .48 }, true);
+  racer.body.setLinvel({ x: 0, y: 0, z: 7.2 }, true);
   addFeed(`<b>RECOVERY</b> · ${escapeHtml(racer.name)} rejoined on the recovery lane.`);
 }
 function physicsStep() {
@@ -280,7 +280,7 @@ function physicsStep() {
   for (const racer of racers) {
     if (racer.finishedAt !== null) continue;
     const p = racer.body.translation();
-    if (p.z > FINISH_Z && Math.abs(p.x) < 2.15 && p.y > -.8) finishRacer(racer);
+    if (p.z > FINISH_Z && Math.abs(p.x) < 2.45 && p.y > -8.5) finishRacer(racer);
     if (p.y < -13 || Math.abs(p.x) > 18 || p.z > FINISH_Z + 8) recoverRacer(racer);
     for (const pad of boostPads) {
       if (elapsed - racer.lastBoostAt > 3.2 && new THREE.Vector3(p.x, p.y, p.z).distanceTo(pad) < 1.8) {
@@ -354,9 +354,9 @@ function disposeObject(object: THREE.Object3D) {
     else mesh.material?.dispose?.();
   });
 }
-function resetArena() {
+function resetArena(fromStart = false) {
   if (!ready || !scene || !world || !renderer) return;
-  running = false; starting = false; clearRacers(); world.free(); trackSegments.length = 0;
+  running = false; starting = fromStart; clearRacers(); world.free(); trackSegments.length = 0;
   for (const child of [...scene.children]) {
     if (!(child as THREE.Light).isLight) { scene.remove(child); disposeObject(child); }
   }
@@ -369,7 +369,7 @@ function resetArena() {
   document.body.classList.remove("race-mode");
   cameraMode = "pack"; $("camera-mode").textContent = "CAM: PACK";
   camera.position.set(18, 19, 4); cameraTarget.set(0, 1, 38); controls.target.copy(cameraTarget); controls.update();
-  setStatus("ARENA READY"); startButton.disabled = !ready; resetButton.disabled = true;
+  setStatus("ARENA READY"); startButton.disabled = !ready || starting; resetButton.disabled = true;
   if (resizeObserver) requestAnimationFrame(() => resize());
 }
 async function startRace() {
@@ -377,7 +377,7 @@ async function startRace() {
   const names = namesInput.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
   if (names.length < 2 || names.length > 30) { validation.textContent = "Please enter between 2 and 30 names."; validation.className = "validation error"; return; }
   starting = true; startButton.disabled = true;
-  resetArena();
+  resetArena(true);
   document.body.classList.add("race-mode");
   requestAnimationFrame(() => resize());
   seed = (Date.now() ^ names.join("|").length * 2654435761) >>> 0;
@@ -406,8 +406,16 @@ async function boot() {
   await RAPIER.init();
   setupScene(); makeWorld();
   namesInput.addEventListener("input", updateCount);
-  startButton.addEventListener("click", () => void startRace());
-  resetButton.addEventListener("click", resetArena);
+  startButton.addEventListener("click", () => {
+    void startRace().catch(error => {
+      console.error("Race start failed:", error);
+      starting = false; running = false; document.body.classList.remove("race-mode");
+      startButton.disabled = false; resetButton.disabled = true;
+      validation.textContent = "Race could not start. Reset the arena and try again.";
+      validation.className = "validation error"; setStatus("RACE ERROR");
+    });
+  });
+  resetButton.addEventListener("click", () => resetArena(false));
   $("camera-mode").addEventListener("click", () => {
     cameraMode = cameraMode === "overview" ? "pack" : cameraMode === "pack" ? "leader" : "overview";
     $("camera-mode").textContent = cameraMode === "overview" ? "CAM: OVERVIEW" : cameraMode === "pack" ? "CAM: PACK" : "CAM: LEADER";
