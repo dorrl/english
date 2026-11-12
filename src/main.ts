@@ -318,6 +318,11 @@ function updateCamera(dt: number) {
     const desired = new THREE.Vector3(centerX + (cameraMode === "leader" ? 8 : 12), centerY + 10 + Math.min(spread * .08, 3), centerZ - distance);
     camera.position.lerp(desired, 1 - Math.exp(-dt * 1.65));
     controls.target.copy(cameraTarget);
+  } else if (!running && racers.length && finishCount === racers.length) {
+    cameraTarget.lerp(new THREE.Vector3(0, -4.8, 101), 1 - Math.exp(-dt * 1.1));
+    const finishView = new THREE.Vector3(13, 4, 82);
+    camera.position.lerp(finishView, 1 - Math.exp(-dt * .8));
+    controls.target.lerp(cameraTarget, .06);
   } else if (!running) {
     cameraTarget.lerp(new THREE.Vector3(0, 1, 38), 1 - Math.exp(-dt * 1.2));
     controls.target.lerp(cameraTarget, .06);
@@ -423,7 +428,7 @@ async function boot() {
   });
   window.addEventListener("resize", resize);
   resizeObserver = new ResizeObserver(resize); resizeObserver.observe(viewport);
-  ready = true; starting = false;
+  ready = true; starting = false; cameraMode = "pack"; $("camera-mode").textContent = "CAM: PACK";
   updateCount(); resetButton.disabled = true; setStatus("ARENA READY");
   validation.textContent = "3D engine ready. Enter 2–30 names to begin.";
   lastFrame = performance.now(); requestAnimationFrame(animate);
