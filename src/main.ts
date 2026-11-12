@@ -21,7 +21,6 @@ let controls: OrbitControls;
 let world: RAPIER.World;
 let racers: Racer[] = [];
 let running = false;
-let raceStartedAt = 0;
 let elapsed = 0;
 let accumulator = 0;
 let lastFrame = 0;
@@ -103,10 +102,10 @@ function addRing(position: THREE.Vector3, radius: number, color: number) {
 }
 function buildArena() {
   const grid = new THREE.GridHelper(80, 50, 0x24405b, 0x15283d); grid.position.y = -2; scene.add(grid);
-  const start = new THREE.Mesh(new THREE.BoxGeometry(10, .4, 4.2), new THREE.MeshStandardMaterial({ color: 0x1d344b, metalness: .45, roughness: .45 }));
-  start.position.set(0, 7.1, -9); start.receiveShadow = true; scene.add(start);
-  const startBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, 7.1, -9));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(5, .2, 2.1).setFriction(.8), startBody);
+  const start = new THREE.Mesh(new THREE.BoxGeometry(10, .4, 9.5), new THREE.MeshStandardMaterial({ color: 0x1d344b, metalness: .45, roughness: .45 }));
+  start.position.set(0, 7.1, -11); start.receiveShadow = true; scene.add(start);
+  const startBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, 7.1, -11));
+  world.createCollider(RAPIER.ColliderDesc.cuboid(5, .2, 4.75).setFriction(.8), startBody);
   // The left branch is wide and forgiving; the right branch is a narrow, steeper shortcut.
   addStaticSegment(new THREE.Vector3(-2.2, 6.3, -7), new THREE.Vector3(-2.5, 5.1, -1), 5.4, 0x23576a);
   addStaticSegment(new THREE.Vector3(2.1, 6.1, -7), new THREE.Vector3(4.0, 3.9, -1), 1.55, 0x75405e);
@@ -228,6 +227,7 @@ function recoverRacer(racer: Racer) {
   addFeed(`<b>RECOVERY</b> · ${escapeHtml(racer.name)} rejoined on the recovery lane.`);
 }
 function physicsStep() {
+  elapsed += FIXED_DT;
   world.timestep = FIXED_DT;
   world.step();
   for (const racer of racers) {
@@ -256,12 +256,12 @@ function animate(now: number) {
   requestAnimationFrame(animate);
   const dt = Math.min((now - lastFrame) / 1000 || 0, .05); lastFrame = now;
   if (running) {
-    accumulator += dt; elapsed = (now - raceStartedAt) / 1000;
+    accumulator += dt;
     while (accumulator >= FIXED_DT) { physicsStep(); accumulator -= FIXED_DT; }
     eventClock += dt;
     if (eventClock > 4.5) { eventClock = 0; applyRandomEvent(); }
     $("race-time").textContent = `${String(Math.floor(elapsed/60)).padStart(2,"0")}:${String(Math.floor(elapsed%60)).padStart(2,"0")}.${Math.floor((elapsed%1)*10)}`;
-    if (Math.floor(elapsed) % 2 === 0) updateLeaderboard();
+    if (Math.floor(elapsed * 3) !== Math.floor((elapsed - dt) * 3)) updateLeaderboard();
   }
   for (const racer of racers) {
     const p = racer.body.translation(); racer.mesh.position.set(p.x,p.y,p.z);
@@ -275,7 +275,7 @@ function animate(now: number) {
 }
 function resetArena() {
   running = false; clearRacers(); world.free(); trackSegments.length = 0;
-  scene.traverse(object => { if (object !== scene && object.parent === scene) { scene.remove(object); if ((object as THREE.Mesh).geometry) (object as THREE.Mesh).geometry.dispose(); } });
+  scene.traverse(object => { if (object !== scene && object.parent === scene && !(object as THREE.Light).isLight) { scene.remove(object); if ((object as THREE.Mesh).geometry) (object as THREE.Mesh).geometry.dispose(); } });
   makeWorld();
   $("winner-banner").classList.add("hidden"); $("race-time").textContent = "00:00.0"; $("event-label").textContent = "WAITING";
   $("remaining-count").textContent = "—"; $("leaderboard").innerHTML = '<li class="empty-row">The race results will appear here.</li>';
@@ -298,7 +298,7 @@ async function startRace() {
   }
   countdown.classList.add("hidden");
   if (!racers.length) return;
-  running = true; raceStartedAt = performance.now(); elapsed = 0; accumulator = 0;
+  running = true; elapsed = 0; accumulator = 0;
   setStatus("RACE IN PROGRESS"); $("event-label").textContent = "CHAOS LIVE";
   addFeed(`<b>START</b> · ${racers.length} racers launched. Pick your route!`);
   resetButton.disabled = false;
