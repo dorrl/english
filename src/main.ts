@@ -3,7 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import RAPIER from "@dimforge/rapier3d-compat";
 import "./style.css";
 
-type Racer = { name: string; color: number; body: RAPIER.RigidBody; mesh: THREE.Mesh; label: THREE.Sprite; finishedAt: number | null; recovered: boolean; shield: number; boostUntil: number; curseUntil: number };
+type Racer = { name: string; color: number; body: RAPIER.RigidBody; mesh: THREE.Mesh; label: THREE.Sprite; finishedAt: number | null; recovered: boolean; shield: number; boostUntil: number; curseUntil: number; lastBoostAt: number };
 type TrackSegment = { a: THREE.Vector3; b: THREE.Vector3; width: number; color: number };
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const viewport = $("viewport");
@@ -13,7 +13,11 @@ const resetButton = $("reset-race") as HTMLButtonElement;
 const validation = $("validation");
 const colors = [0x59d9ff,0xff806e,0xa98cff,0xffd166,0x63e6a5,0xff79bd,0x8ca8ff,0xffa65c,0x5de0d0,0xd8a2ff,0xc5e86c,0xff8c8c,0x71b8ff,0xf2a66f,0x9ce2a2,0xe7a4e8,0x6ce0f2,0xf1d26f,0xb5a0ff,0xff9e75,0x7ee0b1,0x8ca5ee,0xff7fa4,0xb7db70,0x78d6d0,0xd39bff,0xffc078,0x8bbcff,0xe6a2a2,0x9fddb3];
 const FIXED_DT = 1 / 60;
-const FINISH_Z = 22.2;
+const FINISH_Z = 104.5;
+let ready = false;
+let starting = false;
+let manualCameraUntil = 0;
+let resizeObserver: ResizeObserver | undefined;
 let renderer: THREE.WebGLRenderer;
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
@@ -24,7 +28,9 @@ let running = false;
 let elapsed = 0;
 let accumulator = 0;
 let lastFrame = 0;
-let cameraMode: "overview" | "leader" = "overview";
+let cameraMode: "overview" | "pack" | "leader" = "pack";
+const boostPads: THREE.Vector3[] = [];
+const animatedHazards: { mesh: THREE.Mesh; body: RAPIER.RigidBody; phase: number; speed: number }[] = [];
 let cameraTarget = new THREE.Vector3(0, 2, 5);
 let feedEntries = 0;
 let seed = 1;
@@ -51,7 +57,7 @@ function setStatus(value: string) { $("status-label").textContent = value; }
 function updateCount() {
   const count = namesInput.value.split(/\r?\n/).map(v => v.trim()).filter(Boolean).length;
   $("name-count").textContent = `${count} / 30`;
-  startButton.disabled = count < 2 || count > 30 || running;
+  startButton.disabled = !ready || starting || count < 2 || count > 30 || running;
   validation.textContent = count > 30 ? "Maximum 30 participants per race." : count < 2 ? "Enter at least 2 names to get started." : "Ready to roll. All racers are simulated automatically.";
   validation.className = count > 30 ? "validation error" : count >= 2 ? "validation good" : "validation";
 }
@@ -96,12 +102,26 @@ function addBumper(position: THREE.Vector3, radius: number, color: number) {
   const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z));
   world.createCollider(RAPIER.ColliderDesc.ball(radius).setRestitution(1.05).setFriction(.1), body);
 }
+function addBoostPad(position: THREE.Vector3, color = 0x69e7d7) {
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(3.1, .12, 2.2), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.1, metalness: .65, roughness: .24 }));
+  pad.position.copy(position); pad.rotation.x = -.08; scene.add(pad);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.6, .035, .24), new THREE.MeshBasicMaterial({ color: 0xeaffff }));
+  stripe.position.copy(position).add(new THREE.Vector3(0, .09, 0)); scene.add(stripe);
+  boostPads.push(position.clone());
+}
+function addSweeper(position: THREE.Vector3, length = 5.2, speed = 1.15) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(length, .28, .42), new THREE.MeshStandardMaterial({ color: 0xff936d, emissive: 0x7b291f, emissiveIntensity: .75, metalness: .65, roughness: .25 }));
+  mesh.position.copy(position); mesh.castShadow = true; scene.add(mesh);
+  const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(position.x, position.y, position.z));
+  world.createCollider(RAPIER.ColliderDesc.cuboid(length / 2, .16, .22).setRestitution(.82).setFriction(.25), body);
+  animatedHazards.push({ mesh, body, phase: seededRandom() * Math.PI * 2, speed });
+}
 function addRing(position: THREE.Vector3, radius: number, color: number) {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, .09, 12, 72), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .8, metalness: .55, roughness: .25 }));
   ring.position.copy(position); ring.rotation.x = Math.PI / 2; scene.add(ring);
 }
 function buildArena() {
-  const grid = new THREE.GridHelper(80, 50, 0x24405b, 0x15283d); grid.position.y = -2; scene.add(grid);
+  boostPads.length = 0; animatedHazards.length = 0;\n  const grid = new THREE.GridHelper(150, 90, 0x24405b, 0x15283d); grid.position.y = -2; scene.add(grid);
   const start = new THREE.Mesh(new THREE.BoxGeometry(10, .4, 9.5), new THREE.MeshStandardMaterial({ color: 0x1d344b, metalness: .45, roughness: .45 }));
   start.position.set(0, 7.1, -11); start.receiveShadow = true; scene.add(start);
   const startBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, 7.1, -11));
@@ -114,14 +134,35 @@ function buildArena() {
   addStaticSegment(new THREE.Vector3(-2.8, 3.5, 5), new THREE.Vector3(0, 1.6, 12), 5.6, 0x23576a);
   addStaticSegment(new THREE.Vector3(2.5, 2.6, 5), new THREE.Vector3(0, 1.6, 12), 1.6, 0x75405e);
   addStaticSegment(new THREE.Vector3(0, 1.6, 12), new THREE.Vector3(0, .6, 19), 7, 0x2a5065, false);
+  // The main descent winds through a long sequence of banked-feeling switchbacks.
+  addStaticSegment(new THREE.Vector3(0, .6, 19), new THREE.Vector3(-3, .05, 30), 6.2, 0x24586b);
+  addStaticSegment(new THREE.Vector3(-3, .05, 30), new THREE.Vector3(-4, -1.1, 42), 5.5, 0x28536a);
+  addStaticSegment(new THREE.Vector3(-4, -1.1, 42), new THREE.Vector3(2, -2.0, 54), 5.8, 0x24586b);
+  addStaticSegment(new THREE.Vector3(2, -2.0, 54), new THREE.Vector3(3, -2.9, 66), 5.4, 0x28536a);
+  addStaticSegment(new THREE.Vector3(3, -2.9, 66), new THREE.Vector3(-2, -3.9, 78), 5.8, 0x24586b);
+  addStaticSegment(new THREE.Vector3(-2, -3.9, 78), new THREE.Vector3(0, -5.0, 91), 6.2, 0x28536a);
+  addStaticSegment(new THREE.Vector3(0, -5.0, 91), new THREE.Vector3(0, -6.0, 102), 7, 0x2a5065, false);
+  addBoostPad(new THREE.Vector3(-3.4, -.62, 37), 0x6de8d7);
+  addBoostPad(new THREE.Vector3(2.5, -2.45, 61), 0x9a8cff);
+  addBoostPad(new THREE.Vector3(-.8, -4.35, 86), 0xffcf70);
+  addSweeper(new THREE.Vector3(-3.5, -1.35, 45), 4.5, 1.05);
+  addSweeper(new THREE.Vector3(2.6, -3.15, 69), 4.7, 1.35);
+  addBumper(new THREE.Vector3(-1.5, -.8, 25), .8, 0xffb46b);
+  addBumper(new THREE.Vector3(-4.1, -1.75, 49), .8, 0x9e8cff);
+  addBumper(new THREE.Vector3(2.2, -2.7, 63), .72, 0x69e3d1);
+  addBumper(new THREE.Vector3(-1.5, -4.4, 82), .85, 0xff9b6b);
+  for (let z = 28; z <= 96; z += 8) {
+    const marker = new THREE.Mesh(new THREE.TorusGeometry(3.8, .035, 6, 48), new THREE.MeshBasicMaterial({ color: z % 16 === 4 ? 0xffa36e : 0x5cddcf, transparent: true, opacity: .38 }));
+    marker.position.set(0, -z * .055, z); marker.rotation.x = Math.PI / 2; scene.add(marker);
+  }
   addBumper(new THREE.Vector3(-2.7, 4.3, 1.2), .7, 0x69e3d1);
   addBumper(new THREE.Vector3(1.5, 2.4, 8.2), .65, 0xff9b6b);
   addBumper(new THREE.Vector3(-.2, 1.8, 15), .75, 0xa58cff);
-  addRing(new THREE.Vector3(0, .7, 21.2), 1.65, 0x73e5d4);
+  addRing(new THREE.Vector3(0, -6.0, 104), 2.15, 0x73e5d4);
   const finish = new THREE.Mesh(new THREE.CylinderGeometry(1.65, 2.2, .35, 48, 1, true), new THREE.MeshStandardMaterial({ color: 0x4bd9ca, emissive: 0x164e55, emissiveIntensity: .6, side: THREE.DoubleSide, metalness: .55, roughness: .28 }));
-  finish.position.set(0, .1, 21.2); finish.rotation.x = Math.PI / 2; scene.add(finish);
-  const finishFloor = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, -.35, 21.2));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(2.3, .15, 2.3), finishFloor);
+  finish.position.set(0, -6.4, 104); finish.rotation.x = Math.PI / 2; scene.add(finish);
+  const finishFloor = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, -6.85, 104));
+  world.createCollider(RAPIER.ColliderDesc.cuboid(2.6, .15, 2.6).setFriction(.7), finishFloor);
   // Decorative pylons make the split and merge readable from the overview camera.
   for (const x of [-5.2, 5.2]) {
     const pylon = new THREE.Mesh(new THREE.CylinderGeometry(.08, .16, 8, 12), new THREE.MeshStandardMaterial({ color: 0x3d7890, emissive: 0x1a5366, emissiveIntensity: .5 }));
@@ -136,7 +177,9 @@ function setupScene() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8)); renderer.setSize(viewport.clientWidth, viewport.clientHeight);
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
   viewport.appendChild(renderer.domElement);
-  controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.dampingFactor = .07; controls.target.set(0, 2, 5); controls.minDistance = 8; controls.maxDistance = 55; controls.maxPolarAngle = Math.PI * .48;
+  controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.dampingFactor = .075; controls.target.set(0, 1, 38); controls.minDistance = 7; controls.maxDistance = 90; controls.maxPolarAngle = Math.PI * .48;
+  controls.addEventListener("start", () => { manualCameraUntil = performance.now() + 5200; });
+  controls.addEventListener("end", () => { manualCameraUntil = performance.now() + 4200; });
   scene.add(new THREE.HemisphereLight(0x9ecfff, 0x111827, 2.1));
   const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(-8, 18, 7); key.castShadow = true; key.shadow.mapSize.set(2048, 2048); scene.add(key);
   const rim = new THREE.PointLight(0x51dcca, 90, 38); rim.position.set(7, 8, 8); scene.add(rim);
@@ -164,7 +207,7 @@ function makeRacer(name: string, index: number) {
   body.setAdditionalMass(1.2, true);
   world.createCollider(RAPIER.ColliderDesc.ball(.34).setRestitution(.48).setFriction(.34), body);
   const label = createLabel(name, color); scene.add(mesh, label);
-  return { name, color, body, mesh, label, finishedAt: null, recovered: false, shield: 0, boostUntil: 0, curseUntil: 0 } as Racer;
+  return { name, color, body, mesh, label, finishedAt: null, recovered: false, shield: 0, boostUntil: 0, curseUntil: 0, lastBoostAt: -99 } as Racer;
 }
 function updateLeaderboard() {
   const sorted = [...racers].sort((a,b) => {
@@ -214,7 +257,7 @@ function finishRacer(racer: Racer) {
     setStatus("CHAMPION CROWNED"); addFeed(`<b>🏆 WINNER</b> · ${escapeHtml(racer.name)} takes the arena!`);
   }
   if (finishCount === racers.length) {
-    running = false; setStatus("RACE COMPLETE"); startButton.disabled = false; resetButton.disabled = false;
+    running = false; setStatus("RACE COMPLETE"); startButton.disabled = true; resetButton.disabled = false;
     $("event-label").textContent = "COMPLETE";
   }
 }
@@ -229,25 +272,54 @@ function recoverRacer(racer: Racer) {
 function physicsStep() {
   elapsed += FIXED_DT;
   world.timestep = FIXED_DT;
+  for (const hazard of animatedHazards) {
+    const angle = Math.sin(elapsed * hazard.speed + hazard.phase) * .92;
+    hazard.body.setNextKinematicRotation({ x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) });
+  }
   world.step();
   for (const racer of racers) {
     if (racer.finishedAt !== null) continue;
     const p = racer.body.translation();
     if (p.z > FINISH_Z && Math.abs(p.x) < 2.15 && p.y > -.8) finishRacer(racer);
-    if (p.y < -5 || Math.abs(p.x) > 18 || p.z > FINISH_Z + 8) recoverRacer(racer);
+    if (p.y < -13 || Math.abs(p.x) > 18 || p.z > FINISH_Z + 8) recoverRacer(racer);
+    for (const pad of boostPads) {
+      if (elapsed - racer.lastBoostAt > 3.2 && new THREE.Vector3(p.x, p.y, p.z).distanceTo(pad) < 1.8) {
+        racer.lastBoostAt = elapsed; racer.boostUntil = elapsed + 1.4;
+        racer.body.applyImpulse({ x: (seededRandom() - .5) * 1.2, y: .55, z: 7.2 }, true);
+        addFeed(`<b>BOOST PAD</b> · ${escapeHtml(racer.name)} hit a turbo strip!`);
+        break;
+      }
+    }
     if (racer.curseUntil > elapsed) racer.body.setLinvel({ x: racer.body.linvel().x * .985, y: racer.body.linvel().y, z: racer.body.linvel().z * .985 }, true);
   }
 }
 function updateCamera(dt: number) {
-  if (cameraMode === "leader" && racers.length) {
-    const leader = [...racers].filter(r => r.finishedAt === null).sort((a,b) => b.body.translation().z-a.body.translation().z)[0] ?? racers[0];
-    const p = leader.body.translation();
-    cameraTarget.lerp(new THREE.Vector3(p.x, p.y, p.z + 2), 1 - Math.exp(-dt * 2.8));
-    const desired = new THREE.Vector3(p.x + 8, p.y + 6, p.z - 9);
-    camera.position.lerp(desired, 1 - Math.exp(-dt * 1.4));
+  if (performance.now() < manualCameraUntil) { controls.update(); return; }
+  const active = racers.filter(r => r.finishedAt === null);
+  if (running && active.length) {
+    const focus = cameraMode === "leader"
+      ? ([...active].sort((a,b) => b.body.translation().z-a.body.translation().z)[0] ?? active[0])
+      : null;
+    let centerX = 0, centerY = 0, centerZ = 0, minZ = Infinity, maxZ = -Infinity;
+    if (focus) {
+      const p = focus.body.translation(); centerX = p.x; centerY = p.y; centerZ = p.z;
+      minZ = maxZ = p.z;
+    } else {
+      for (const racer of active) {
+        const p = racer.body.translation(); centerX += p.x; centerY += p.y; centerZ += p.z;
+        minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+      }
+      centerX /= active.length; centerY /= active.length; centerZ /= active.length;
+    }
+    const spread = Math.max(0, maxZ - minZ);
+    const nextTarget = new THREE.Vector3(centerX, centerY + 1.5, centerZ + (cameraMode === "leader" ? 2 : 3));
+    cameraTarget.lerp(nextTarget, 1 - Math.exp(-dt * 3.2));
+    const distance = cameraMode === "leader" ? 15 : 19 + Math.min(spread * .34, 13);
+    const desired = new THREE.Vector3(centerX + (cameraMode === "leader" ? 8 : 12), centerY + 10 + Math.min(spread * .08, 3), centerZ - distance);
+    camera.position.lerp(desired, 1 - Math.exp(-dt * 1.65));
     controls.target.copy(cameraTarget);
   } else if (!running) {
-    cameraTarget.lerp(new THREE.Vector3(0, 2, 5), 1 - Math.exp(-dt * 1.2));
+    cameraTarget.lerp(new THREE.Vector3(0, 1, 38), 1 - Math.exp(-dt * 1.2));
     controls.target.lerp(cameraTarget, .06);
   }
   controls.update();
@@ -263,6 +335,7 @@ function animate(now: number) {
     $("race-time").textContent = `${String(Math.floor(elapsed/60)).padStart(2,"0")}:${String(Math.floor(elapsed%60)).padStart(2,"0")}.${Math.floor((elapsed%1)*10)}`;
     if (Math.floor(elapsed * 3) !== Math.floor((elapsed - dt) * 3)) updateLeaderboard();
   }
+  for (const hazard of animatedHazards) { const q = hazard.body.rotation(); hazard.mesh.quaternion.set(q.x,q.y,q.z,q.w); }
   for (const racer of racers) {
     const p = racer.body.translation(); racer.mesh.position.set(p.x,p.y,p.z);
     racer.mesh.quaternion.set(racer.body.rotation().x,racer.body.rotation().y,racer.body.rotation().z,racer.body.rotation().w);
@@ -273,20 +346,40 @@ function animate(now: number) {
   updateCamera(dt);
   renderer.render(scene,camera);
 }
+function disposeObject(object: THREE.Object3D) {
+  object.traverse(child => {
+    const mesh = child as THREE.Mesh;
+    mesh.geometry?.dispose?.();
+    if (Array.isArray(mesh.material)) mesh.material.forEach(material => material.dispose());
+    else mesh.material?.dispose?.();
+  });
+}
 function resetArena() {
-  running = false; clearRacers(); world.free(); trackSegments.length = 0;
-  scene.traverse(object => { if (object !== scene && object.parent === scene && !(object as THREE.Light).isLight) { scene.remove(object); if ((object as THREE.Mesh).geometry) (object as THREE.Mesh).geometry.dispose(); } });
+  if (!ready || !scene || !world || !renderer) return;
+  running = false; starting = false; clearRacers(); world.free(); trackSegments.length = 0;
+  for (const child of [...scene.children]) {
+    if (!(child as THREE.Light).isLight) { scene.remove(child); disposeObject(child); }
+  }
+  boostPads.length = 0; animatedHazards.length = 0;
   makeWorld();
   $("winner-banner").classList.add("hidden"); $("race-time").textContent = "00:00.0"; $("event-label").textContent = "WAITING";
   $("remaining-count").textContent = "—"; $("leaderboard").innerHTML = '<li class="empty-row">The race results will appear here.</li>';
   $("finished-count").textContent = "0"; $("event-feed").innerHTML = '<span class="feed-empty">Waiting for the starting signal…</span>';
   feedEntries = 0; finishCount = 0; winnerShown = false; elapsed = 0; eventClock = 0;
-  setStatus("ARENA READY"); startButton.disabled = false; resetButton.disabled = true;
+  document.body.classList.remove("race-mode");
+  cameraMode = "pack"; $("camera-mode").textContent = "CAM: PACK";
+  camera.position.set(18, 19, 4); cameraTarget.set(0, 1, 38); controls.target.copy(cameraTarget); controls.update();
+  setStatus("ARENA READY"); startButton.disabled = !ready; resetButton.disabled = true;
+  if (resizeObserver) requestAnimationFrame(() => resize());
 }
 async function startRace() {
+  if (!ready || starting || running) return;
   const names = namesInput.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
   if (names.length < 2 || names.length > 30) { validation.textContent = "Please enter between 2 and 30 names."; validation.className = "validation error"; return; }
+  starting = true; startButton.disabled = true;
   resetArena();
+  document.body.classList.add("race-mode");
+  requestAnimationFrame(() => resize());
   seed = (Date.now() ^ names.join("|").length * 2654435761) >>> 0;
   racers = names.map(makeRacer);
   updateLeaderboard(); startButton.disabled = true; resetButton.disabled = true;
@@ -295,10 +388,11 @@ async function startRace() {
   for (const value of ["3","2","1","GO"]) {
     countdown.textContent = value;
     await new Promise(resolve => setTimeout(resolve, value === "GO" ? 450 : 700));
+    if (!ready || !starting) { countdown.classList.add("hidden"); return; }
   }
   countdown.classList.add("hidden");
   if (!racers.length) return;
-  running = true; elapsed = 0; accumulator = 0;
+  starting = false; running = true; cameraMode = "pack"; $("camera-mode").textContent = "CAM: PACK"; manualCameraUntil = 0; elapsed = 0; accumulator = 0;
   setStatus("RACE IN PROGRESS"); $("event-label").textContent = "CHAOS LIVE";
   addFeed(`<b>START</b> · ${racers.length} racers launched. Pick your route!`);
   resetButton.disabled = false;
@@ -315,14 +409,21 @@ async function boot() {
   startButton.addEventListener("click", () => void startRace());
   resetButton.addEventListener("click", resetArena);
   $("camera-mode").addEventListener("click", () => {
-    cameraMode = cameraMode === "overview" ? "leader" : "overview";
-    $("camera-mode").textContent = cameraMode === "overview" ? "CAM: OVERVIEW" : "CAM: LEADER";
+    cameraMode = cameraMode === "overview" ? "pack" : cameraMode === "pack" ? "leader" : "overview";
+    $("camera-mode").textContent = cameraMode === "overview" ? "CAM: OVERVIEW" : cameraMode === "pack" ? "CAM: PACK" : "CAM: LEADER";
+    manualCameraUntil = 0;
   });
   window.addEventListener("resize", resize);
-  updateCount(); lastFrame = performance.now(); requestAnimationFrame(animate);
+  resizeObserver = new ResizeObserver(resize); resizeObserver.observe(viewport);
+  ready = true; starting = false;
+  updateCount(); resetButton.disabled = true; setStatus("ARENA READY");
+  validation.textContent = "3D engine ready. Enter 2–30 names to begin.";
+  lastFrame = performance.now(); requestAnimationFrame(animate);
 }
 void boot().catch(error => {
-  console.error(error); setStatus("ENGINE ERROR");
-  validation.textContent = "The 3D engine failed to initialize. Please reload the page.";
+  console.error("Shuffle Arena initialization failed:", error);
+  ready = false; starting = false; startButton.disabled = true; resetButton.disabled = true;
+  setStatus("ENGINE ERROR");
+  validation.textContent = "3D engine initialization failed. Reload the page or try a supported browser.";
   validation.className = "validation error";
 });
