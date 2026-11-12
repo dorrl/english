@@ -121,7 +121,8 @@ function addRing(position: THREE.Vector3, radius: number, color: number) {
   ring.position.copy(position); ring.rotation.x = Math.PI / 2; scene.add(ring);
 }
 function buildArena() {
-  boostPads.length = 0; animatedHazards.length = 0;\n  const grid = new THREE.GridHelper(150, 90, 0x24405b, 0x15283d); grid.position.y = -2; scene.add(grid);
+  boostPads.length = 0; animatedHazards.length = 0;
+  const grid = new THREE.GridHelper(150, 90, 0x24405b, 0x15283d); grid.position.y = -2; scene.add(grid);
   const start = new THREE.Mesh(new THREE.BoxGeometry(10, .4, 9.5), new THREE.MeshStandardMaterial({ color: 0x1d344b, metalness: .45, roughness: .45 }));
   start.position.set(0, 7.1, -11); start.receiveShadow = true; scene.add(start);
   const startBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, 7.1, -11));
