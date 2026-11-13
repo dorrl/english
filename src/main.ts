@@ -85,14 +85,14 @@ function addStaticSegment(a: THREE.Vector3, b: THREE.Vector3, width: number, col
   const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction.normalize());
   const material = new THREE.MeshStandardMaterial({ color, roughness: .48, metalness: .32, emissive: color, emissiveIntensity: .12 });
   const deck = new THREE.Mesh(new THREE.BoxGeometry(width, .34, length + .15), material);
-  deck.position.copy(center); deck.quaternion.copy(rotation); deck.castShadow = true; deck.receiveShadow = true; scene.add(deck);
+  deck.position.copy(center); deck.quaternion.copy(rotation); deck.castShadow = false; deck.receiveShadow = true; scene.add(deck);
   const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z).setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w }));
   world.createCollider(RAPIER.ColliderDesc.cuboid(width / 2, .17, length / 2 + .075).setFriction(.72).setRestitution(.08), body);
   if (rail) {
     for (const side of [-1, 1]) {
       const offset = new THREE.Vector3(side * (width / 2 + .02), .42, 0).applyQuaternion(rotation);
       const railMesh = new THREE.Mesh(new THREE.BoxGeometry(.14, .55, length), new THREE.MeshStandardMaterial({ color: 0x527d91, metalness: .65, roughness: .3, emissive: 0x143a4b, emissiveIntensity: .25 }));
-      railMesh.position.copy(center).add(offset); railMesh.quaternion.copy(rotation); railMesh.castShadow = true; scene.add(railMesh);
+      railMesh.position.copy(center).add(offset); railMesh.quaternion.copy(rotation); railMesh.castShadow = false; scene.add(railMesh);
       const railBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(railMesh.position.x, railMesh.position.y, railMesh.position.z).setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w }));
       world.createCollider(RAPIER.ColliderDesc.cuboid(.07, .275, length / 2).setFriction(.5), railBody);
     }
@@ -143,6 +143,8 @@ function buildArena() {
   for (const side of [-1, 1]) {
     const rail = new THREE.Mesh(new THREE.BoxGeometry(.12, .34, 8.8), new THREE.MeshStandardMaterial({ color: 0x6be6d8, emissive: 0x1d8e8a, emissiveIntensity: .65, metalness: .55, roughness: .25 }));
     rail.position.set(side * 4.86, 7.42, -11); rail.quaternion.copy(startRotation); scene.add(rail);
+    const railBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(rail.position.x, rail.position.y, rail.position.z).setRotation({ x: startRotation.x, y: startRotation.y, z: startRotation.z, w: startRotation.w }));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(.06, .17, 4.4).setRestitution(.2).setFriction(.35), railBody);
   }
   // The left branch is wide and forgiving; the right branch is a narrow, steeper shortcut.
   addStaticSegment(new THREE.Vector3(-2.2, 6.3, -7), new THREE.Vector3(-2.5, 5.1, -1), 5.4, 0x23576a);
@@ -175,8 +177,7 @@ function buildArena() {
     const y = z < 45 ? .35 : z < 70 ? -2.5 : z < 90 ? -4.1 : -5.4;
     const arch = new THREE.Mesh(new THREE.TorusGeometry(3.15, .11, 8, 48), new THREE.MeshStandardMaterial({ color: z % 24 === 1 ? 0xffa36e : 0x65e5d6, emissive: z % 24 === 1 ? 0x7d321d : 0x145e59, emissiveIntensity: .85, metalness: .5, roughness: .28 }));
     arch.position.set(x, y + 1.2, z); arch.rotation.x = Math.PI / 2; scene.add(arch);
-    const beacon = new THREE.PointLight(z % 24 === 1 ? 0xffa36e : 0x52dfd0, 26, 13);
-    beacon.position.set(x, y + 4.4, z); scene.add(beacon);
+
   }
   for (let z = 24; z < 100; z += 16) {
     const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2 + (z % 3) * .25, 0), new THREE.MeshStandardMaterial({ color: 0x26374f, roughness: .92, metalness: .12 }));
