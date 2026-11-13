@@ -1,476 +1,62 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import RAPIER from "@dimforge/rapier3d-compat";
 import "./style.css";
 
-type Racer = { name: string; color: number; body: RAPIER.RigidBody; mesh: THREE.Mesh; label: THREE.Sprite; finishedAt: number | null; recovered: boolean; shield: number; boostUntil: number; curseUntil: number; lastBoostAt: number };
-type TrackSegment = { a: THREE.Vector3; b: THREE.Vector3; width: number; color: number };
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const viewport = $("viewport");
-const namesInput = $("names") as HTMLTextAreaElement;
-const startButton = $("start-race") as HTMLButtonElement;
-const resetButton = $("reset-race") as HTMLButtonElement;
-const validation = $("validation");
-const colors = [0x59d9ff,0xff806e,0xa98cff,0xffd166,0x63e6a5,0xff79bd,0x8ca8ff,0xffa65c,0x5de0d0,0xd8a2ff,0xc5e86c,0xff8c8c,0x71b8ff,0xf2a66f,0x9ce2a2,0xe7a4e8,0x6ce0f2,0xf1d26f,0xb5a0ff,0xff9e75,0x7ee0b1,0x8ca5ee,0xff7fa4,0xb7db70,0x78d6d0,0xd39bff,0xffc078,0x8bbcff,0xe6a2a2,0x9fddb3];
-const FIXED_DT = 1 / 60;
-const MARBLE_RADIUS = .34;
-const marbleGeometry = new THREE.SphereGeometry(MARBLE_RADIUS, 18, 14);
-const tempVector = new THREE.Vector3();
-const FINISH_Z = 104.5;
-let ready = false;
-let starting = false;
-let manualCameraUntil = 0;
-let resizeObserver: ResizeObserver | undefined;
-let renderer: THREE.WebGLRenderer;
-let scene: THREE.Scene;
-let camera: THREE.PerspectiveCamera;
-let controls: OrbitControls;
-let world: RAPIER.World;
-let racers: Racer[] = [];
-let running = false;
-let elapsed = 0;
-let accumulator = 0;
-let lastFrame = 0;
-let cameraMode: "overview" | "pack" | "leader" = "pack";
-const boostPads: THREE.Vector3[] = [];
-const animatedHazards: { mesh: THREE.Mesh; body: RAPIER.RigidBody; phase: number; speed: number }[] = [];
-let cameraTarget = new THREE.Vector3(0, 2, 5);
-let feedEntries = 0;
-let seed = 1;
-let eventClock = 0;
-let finishCount = 0;
-let winnerShown = false;
-const trackSegments: TrackSegment[] = [];
-
-function seededRandom() {
-  seed = (seed * 1664525 + 1013904223) >>> 0;
-  return seed / 4294967296;
+type Racer = { name:string; color:number; mesh:THREE.Mesh; trail:THREE.Points; trailPositions:Float32Array; trailIndex:number; velocity:THREE.Vector3; position:THREE.Vector3; launched:boolean; done:boolean; launchAt:number; planets:number; distance:number; flightTime:number; maxZ:number };
+type Planet = { mesh:THREE.Group; core:THREE.Mesh; position:THREE.Vector3; radius:number; destroyed:boolean; label:string };
+type Particle = { mesh:THREE.Mesh; velocity:THREE.Vector3; life:number; maxLife:number; spin:THREE.Vector3 };
+const $ = <T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
+const viewport=$("viewport"), namesInput=$("names") as HTMLTextAreaElement, startButton=$("start-race") as HTMLButtonElement, resetButton=$("reset-race") as HTMLButtonElement, validation=$("validation");
+const palette=[0xff6b9f,0x69d9ff,0xffcf66,0x9e85ff,0x6ff0bd,0xff8b64,0x72a4ff,0xff7bd2,0xb9ed67,0x67e3d4,0xe5a0ff,0xffaa5b,0x84baff,0xf4dc77,0x70e7a2,0xff7891,0x7ce5f2,0xc19aff,0xf5a66d,0x9ce68a,0x8ea1ff,0xff91bd,0x6ddfc6,0xffc477,0xb6a1ff,0x8fd5ff,0xffa2a2,0x9fe2b7,0xe2a2e8,0xc5e77a];
+const clock=new THREE.Clock(), dummy=new THREE.Object3D(), temp=new THREE.Vector3();
+let scene:THREE.Scene, camera:THREE.PerspectiveCamera, renderer:THREE.WebGLRenderer, controls:OrbitControls, ready=false, running=false, starting=false, elapsed=0, launchCursor=0, launchClock=0, cameraMode:"follow"|"overview"="follow", cameraHoldUntil=0, totalDestroyed=0, shake=0, winnerShown=false;
+const racers:Racer[]=[], planets:Planet[]=[], particles:Particle[]=[], stars:THREE.Points[]=[];
+const sharedBallGeometry=new THREE.SphereGeometry(.48,24,18), sharedParticleGeometry=new THREE.IcosahedronGeometry(.12,0), sharedPlanetGeometry=new THREE.SphereGeometry(1,32,24);
+const planetColors=[0x7c74ff,0x42d6d0,0xff8b69,0xd58aff,0x5da7ff,0xffc45f,0x8bdc8a,0xf27db8];
+const formatTime=(n:number)=>{const m=Math.floor(n/60),s=n%60;return String(m).padStart(2,"0")+":"+s.toFixed(1).padStart(4,"0")};
+function random(seed:number){const x=Math.sin(seed*127.1+311.7)*43758.5453;return x-Math.floor(x)}
+function setStatus(s:string){$("status-label").textContent=s}
+function addFeed(message:string){const feed=$("event-feed");if(feedEntries===0)feed.innerHTML="";feedEntries++;const item=document.createElement("div");item.className="feed-item";item.innerHTML=message;feed.prepend(item);while(feed.children.length>7)feed.lastElementChild?.remove()}
+let feedEntries=0;
+function updateCount(){const count=namesInput.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean).length;$("name-count").textContent=`${count} / 30`;startButton.disabled=!ready||starting||running||count<2||count>30;validation.textContent=count>30?"한 번에 최대 30명까지 참여할 수 있어.":count<2?"최소 2명의 이름을 입력해.":"준비 완료! 공들이 자동으로 발사돼.";validation.className=count>30?"validation error":count>=2?"validation good":"validation"}
+function makeGlowTexture(color:string){const c=document.createElement("canvas");c.width=c.height=128;const x=c.getContext("2d")!,g=x.createRadialGradient(64,64,2,64,64,62);g.addColorStop(0,color);g.addColorStop(.25,color+"aa");g.addColorStop(1,"transparent");x.fillStyle=g;x.fillRect(0,0,128,128);return new THREE.CanvasTexture(c)}
+function addStars(){const positions=new Float32Array(5200*3);for(let i=0;i<5200;i++){positions[i*3]=(random(i+4)-.5)*260;positions[i*3+1]=(random(i+9)-.5)*170;positions[i*3+2]=random(i+15)*250-35}const geo=new THREE.BufferGeometry();geo.setAttribute("position",new THREE.BufferAttribute(positions,3));const points=new THREE.Points(geo,new THREE.PointsMaterial({color:0xd9d5ff,size:.28,transparent:true,opacity:.86,sizeAttenuation:true}));scene.add(points);stars.push(points)}
+function addNebula(){for(let i=0;i<8;i++){const mat=new THREE.SpriteMaterial({map:makeGlowTexture(["#603bff","#ff4fa5","#39d6d1","#795cff"][i%4]),transparent:true,opacity:.17,depthWrite:false,blending:THREE.AdditiveBlending});const s=new THREE.Sprite(mat);s.position.set((random(i+30)-.5)*48,(random(i+50)-.5)*30,15+i*20);s.scale.set(32,24,1);scene.add(s)}}
+function makePlanet(z:number,lane:number,index:number){const group=new THREE.Group(),radius=2.5+random(index+9)*1.6,color=planetColors[index%planetColors.length],mat=new THREE.MeshStandardMaterial({color,roughness:.72,metalness:.08});const core=new THREE.Mesh(sharedPlanetGeometry,mat);core.scale.setScalar(radius);core.castShadow=true;group.add(core);const atmosphere=new THREE.Mesh(new THREE.SphereGeometry(radius*1.12,32,24),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.12,side:THREE.BackSide}));group.add(atmosphere);const cloud=new THREE.Mesh(new THREE.SphereGeometry(radius*1.015,24,18),new THREE.MeshStandardMaterial({color:0xffffff,roughness:1,transparent:true,opacity:.12,wireframe:true}));group.add(cloud);if(index%3!==1){const ring=new THREE.Mesh(new THREE.TorusGeometry(radius*1.42,.13,8,80),new THREE.MeshStandardMaterial({color:index%2?0xffc1e4:0x9ceeff,emissive:index%2?0x7b3761:0x285d85,emissiveIntensity:.6,metalness:.5,roughness:.3}));ring.rotation.x=Math.PI/2.25;ring.rotation.y=.25;group.add(ring)}group.position.set(lane,flightHeight(z)+((index%3)-1)*1.1,z);scene.add(group);const p={mesh:group,core,position:group.position.clone(),radius,destroyed:false,label:["NEBULA-7","TITAN","PIXEL-9","AURORA","VULCAN","NOVA"][index%6]};planets.push(p);return p}
+function flightHeight(z:number){return 2+Math.sin(z*.025)*2+z*.055}
+function buildGalaxy(){addStars();addNebula();const floor=new THREE.Mesh(new THREE.PlaneGeometry(500,500),new THREE.MeshBasicMaterial({color:0x08091a,transparent:true,opacity:.16}));floor.rotation.x=-Math.PI/2;floor.position.y=-30;scene.add(floor);
+  const launchDeck=new THREE.Mesh(new THREE.CylinderGeometry(8,10,1.3,64),new THREE.MeshStandardMaterial({color:0x25243d,metalness:.7,roughness:.35,emissive:0x27154b,emissiveIntensity:.55}));launchDeck.position.set(0,-2.1,-2);scene.add(launchDeck);
+  for(let i=0;i<3;i++){const ring=new THREE.Mesh(new THREE.TorusGeometry(8.5+i*.65,.08,8,100),new THREE.MeshBasicMaterial({color:[0xff76c5,0x7b72ff,0x6cebdd][i],transparent:true,opacity:.8}));ring.rotation.x=Math.PI/2;ring.position.set(0,-1.25+i*.05,-2);scene.add(ring)}
+  // Monumental cosmic bat: a long metallic barrel, glowing sweet spot and handle.
+  const bat=new THREE.Group();const barrel=new THREE.Mesh(new THREE.CylinderGeometry(.82,.48,10,32),new THREE.MeshStandardMaterial({color:0x8f9ab5,metalness:.92,roughness:.2,emissive:0x36245f,emissiveIntensity:.65}));barrel.rotation.z=Math.PI/2;barrel.position.x=1.6;bat.add(barrel);const sweet=new THREE.Mesh(new THREE.CylinderGeometry(.86,.86,2.2,32),new THREE.MeshStandardMaterial({color:0xffbd63,metalness:.75,roughness:.18,emissive:0xff5b9b,emissiveIntensity:1.7}));sweet.rotation.z=Math.PI/2;sweet.position.x=4.7;bat.add(sweet);const grip=new THREE.Mesh(new THREE.CylinderGeometry(.32,.4,4.2,20),new THREE.MeshStandardMaterial({color:0x25233d,metalness:.65,roughness:.28}));grip.rotation.z=Math.PI/2;grip.position.x=-4.8;bat.add(grip);bat.position.set(-1,1,-5);bat.rotation.z=-.3;bat.name="cosmic-bat";scene.add(bat);
+  for(let row=0;row<5;row++){const z=22+row*24;for(let col=0;col<5;col++){const lane=(col-2)*5.5+(random(row*13+col)*1.4-.7);makePlanet(z+random(row*31+col)*4,lane,row*5+col)}} 
+  for(let i=0;i<34;i++){const r=.35+random(i+70)*1.2,m=new THREE.Mesh(new THREE.IcosahedronGeometry(r,1),new THREE.MeshStandardMaterial({color:0x77718e,roughness:1,flatShading:true}));m.position.set((random(i+80)-.5)*32,flightHeight(12+i*5)+(random(i+90)-.5)*9,12+i*5);m.rotation.set(i*.7,i*.31,i*.17);scene.add(m)}
 }
-function addFeed(message: string) {
-  const feed = $("event-feed");
-  if (feedEntries === 0) feed.innerHTML = "";
-  feedEntries++;
-  const item = document.createElement("div");
-  item.className = "feed-item";
-  item.innerHTML = message;
-  feed.prepend(item);
-  while (feed.children.length > 7) feed.lastElementChild?.remove();
-}
-function setStatus(value: string) { $("status-label").textContent = value; }
-function updateCount() {
-  const count = namesInput.value.split(/\r?\n/).map(v => v.trim()).filter(Boolean).length;
-  $("name-count").textContent = `${count} / 30`;
-  startButton.disabled = !ready || starting || count < 2 || count > 30 || running;
-  validation.textContent = count > 30 ? "Maximum 30 participants per race." : count < 2 ? "Enter at least 2 names to get started." : "Ready to roll. All racers are simulated automatically.";
-  validation.className = count > 30 ? "validation error" : count >= 2 ? "validation good" : "validation";
-}
-function createLabel(text: string, color: number) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 256; canvas.height = 64;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "rgba(5,12,24,.78)";
-  ctx.beginPath(); ctx.roundRect(8, 8, 240, 48, 14); ctx.fill();
-  ctx.strokeStyle = new THREE.Color(color).getStyle(); ctx.lineWidth = 3; ctx.stroke();
-  ctx.fillStyle = "#ffffff"; ctx.font = "bold 24px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(text.length > 15 ? text.slice(0,14) + "…" : text, 128, 33);
-  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }));
-  sprite.scale.set(2.1, .52, 1);
-  return sprite;
-}
-function addStaticSegment(a: THREE.Vector3, b: THREE.Vector3, width: number, color = 0x243c55, rail = true) {
-  const direction = new THREE.Vector3().subVectors(b, a);
-  const length = direction.length();
-  const center = new THREE.Vector3().addVectors(a, b).multiplyScalar(.5);
-  const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), direction.normalize());
-  const material = new THREE.MeshStandardMaterial({ color, roughness: .48, metalness: .32, emissive: color, emissiveIntensity: .12 });
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(width, .34, length + .15), material);
-  deck.position.copy(center); deck.quaternion.copy(rotation); deck.castShadow = false; deck.receiveShadow = true; scene.add(deck);
-  const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z).setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w }));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(width / 2, .17, length / 2 + .075).setFriction(.72).setRestitution(.08), body);
-  if (rail) {
-    for (const side of [-1, 1]) {
-      const offset = new THREE.Vector3(side * (width / 2 + .02), .42, 0).applyQuaternion(rotation);
-      const railMesh = new THREE.Mesh(new THREE.BoxGeometry(.14, .55, length), new THREE.MeshStandardMaterial({ color: 0x527d91, metalness: .65, roughness: .3, emissive: 0x143a4b, emissiveIntensity: .25 }));
-      railMesh.position.copy(center).add(offset); railMesh.quaternion.copy(rotation); railMesh.castShadow = false; scene.add(railMesh);
-      const railBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(railMesh.position.x, railMesh.position.y, railMesh.position.z).setRotation({ x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w }));
-      world.createCollider(RAPIER.ColliderDesc.cuboid(.07, .275, length / 2).setFriction(.5), railBody);
-    }
+function makeRacer(name:string,index:number):Racer{const color=palette[index%palette.length],mat=new THREE.MeshStandardMaterial({color,metalness:.35,roughness:.22,emissive:color,emissiveIntensity:.45});const mesh=new THREE.Mesh(sharedBallGeometry,mat);mesh.position.set((index%6-2.5)*1.15,1.5+Math.floor(index/6)*.7,1);mesh.castShadow=true;scene.add(mesh);const trailPositions=new Float32Array(36*3);const geo=new THREE.BufferGeometry();geo.setAttribute("position",new THREE.BufferAttribute(trailPositions,3));const trail=new THREE.Points(geo,new THREE.PointsMaterial({color,size:.36,transparent:true,opacity:.72,depthWrite:false}));scene.add(trail);return{name,color,mesh,trail,trailPositions,trailIndex:0,velocity:new THREE.Vector3(),position:mesh.position.clone(),launched:false,done:false,launchAt:index*.34,planets:0,distance:0,flightTime:0,maxZ:0}}
+function createParticles(position:THREE.Vector3,color:number,count:number,power:number){const material=new THREE.MeshBasicMaterial({color,transparent:true,opacity:1});for(let i=0;i<count;i++){const mesh=new THREE.Mesh(sharedParticleGeometry,material);mesh.position.copy(position);const v=new THREE.Vector3(random(i*7+elapsed*91)-.5,random(i*11+elapsed*71)-.5,random(i*17+elapsed*53)-.5).normalize().multiplyScalar(power*(.35+random(i+31)));scene.add(mesh);particles.push({mesh,velocity:v,life:.7+random(i+43)*1.1,maxLife:1.8,spin:new THREE.Vector3(random(i+3),random(i+5),random(i+7))})}}
+function smashPlanet(planet:Planet,racer:Racer){if(planet.destroyed)return;planet.destroyed=true;racer.planets++;totalDestroyed++;shake=Math.max(shake,1.25);$("impact-flash").classList.remove("active");void $("impact-flash").offsetWidth;$("impact-flash").classList.add("active");const pos=planet.position.clone(),color=(planet.core.material as THREE.MeshStandardMaterial).color.getHex();createParticles(pos,color,48,15);const shock=new THREE.Mesh(new THREE.TorusGeometry(planet.radius*.7,.18,10,64),new THREE.MeshBasicMaterial({color:0xffe1a0,transparent:true,opacity:1}));shock.position.copy(pos);scene.add(shock);let t=0;const animateShock=()=>{t+=.06;shock.scale.setScalar(1+t*5);(shock.material as THREE.MeshBasicMaterial).opacity=Math.max(0,1-t);if(t<1)requestAnimationFrame(animateShock);else{scene.remove(shock);shock.geometry.dispose();(shock.material as THREE.Material).dispose()}};requestAnimationFrame(animateShock);scene.remove(planet.mesh);planet.mesh.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose());else if(o.material!== (planet.core.material))o.material.dispose()}});addFeed(`<b>PLANET BREAKER</b> · ${racer.name} shattered ${planet.label}!`)}
+function updateLeaderboard(){const sorted=[...racers].sort((a,b)=>b.planets-a.planets||b.distance-a.distance);const list=$("leaderboard");list.innerHTML="";for(let i=0;i<sorted.length;i++){const r=sorted[i],li=document.createElement("li");li.innerHTML=`<span class="rank">${String(i+1).padStart(2,"0")}</span><i class="marble-swatch" style="background:#${r.color.toString(16).padStart(6,"0")};color:#${r.color.toString(16).padStart(6,"0")}"></i><span class="racer-name"></span><span class="racer-time">${r.planets} ✦</span>`;li.querySelector(".racer-name")!.textContent=r.name;list.append(li)}$("finished-count").textContent=String(racers.filter(r=>r.done).length);$("remaining-count").textContent=String(totalDestroyed)}
+function updateTrail(r:Racer){const i=r.trailIndex++%12;const attr=r.trail.geometry.getAttribute("position") as THREE.BufferAttribute;attr.setXYZ(i,r.position.x,r.position.y,r.position.z);attr.needsUpdate=true}
+function launch(r:Racer,index:number){r.launched=true;r.position.set((index%6-2.5)*.95,1.6+Math.floor(index/6)*.45,0);r.velocity.set((random(index+1)-.5)*2.8,13+random(index+2)*6,46+random(index+3)*19);r.mesh.position.copy(r.position);r.launchAt=elapsed;addFeed(`<b>FULL POWER</b> · ${r.name} launched into orbit!`);const flash=new THREE.PointLight(r.color,32,26,2);flash.position.copy(r.position);scene.add(flash);setTimeout(()=>scene.remove(flash),180)}
+function finishRacer(r:Racer){r.done=true;r.trail.visible=false;r.mesh.visible=false}
+function updateSimulation(dt:number){elapsed+=dt;launchClock+=dt;while(launchCursor<racers.length&&elapsed>=racers[launchCursor].launchAt){launch(racers[launchCursor],launchCursor);launchCursor++}
+  for(const r of racers){if(!r.launched||r.done)continue;r.flightTime+=dt;r.velocity.y-=1.55*dt;r.position.addScaledVector(r.velocity,dt);r.mesh.position.copy(r.position);r.mesh.rotation.x+=dt*7;r.mesh.rotation.z+=dt*4;r.distance=Math.max(r.distance,r.position.z);r.maxZ=Math.max(r.maxZ,r.position.z);updateTrail(r);
+    for(const p of planets){if(p.destroyed)continue;const dx=r.position.x-p.position.x,dy=r.position.y-p.position.y,dz=r.position.z-p.position.z;if(dx*dx+dy*dy+dz*dz<(p.radius+.48)*(p.radius+.48)){smashPlanet(p,r);r.velocity.multiplyScalar(1.13);break}}
+    if(r.position.z>185||r.position.y< -28||r.flightTime>18)finishRacer(r);
   }
-  const edgeMaterial = new THREE.MeshBasicMaterial({ color: color === 0x75405e ? 0xff9a82 : 0x66e6d7 });
-  for (const side of [-1, 1]) {
-    const edge = new THREE.Mesh(new THREE.BoxGeometry(.055, .035, length), edgeMaterial);
-    edge.position.copy(center).add(new THREE.Vector3(side * (width / 2 - .12), .19, 0).applyQuaternion(rotation));
-    edge.quaternion.copy(rotation); scene.add(edge);
-  }
-  trackSegments.push({ a, b, width, color });
+  for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;p.velocity.y-=3.2*dt;p.mesh.position.addScaledVector(p.velocity,dt);p.mesh.rotation.x+=p.spin.x*dt*5;p.mesh.rotation.y+=p.spin.y*dt*5;p.mesh.scale.setScalar(Math.max(.02,p.life/p.maxLife));(p.mesh.material as THREE.MeshBasicMaterial).opacity=Math.max(0,p.life/p.maxLife);if(p.life<=0){scene.remove(p.mesh);particles.splice(i,1)}}
+  if(Math.floor(elapsed*3)!==Math.floor((elapsed-dt)*3))updateLeaderboard();
+  $("race-time").textContent=formatTime(elapsed);
+  if(racers.length&&racers.every(r=>r.done)&&!winnerShown){winnerShown=true;running=false;const winner=[...racers].sort((a,b)=>b.planets-a.planets||b.distance-a.distance)[0];$("winner-name").textContent=winner.name;$("winner-caption").textContent=`${winner.planets} PLANETS SMASHED · ${Math.round(winner.distance)} M DISTANCE`;$("winner-banner").classList.remove("hidden");setStatus("GALACTIC CHAMPION CROWNED");$("event-label").textContent="MISSION COMPLETE";addFeed(`<b>GALACTIC MVP</b> · ${winner.name} wins the smash-off!`);startButton.disabled=false}
 }
-function addBumper(position: THREE.Vector3, radius: number, color: number) {
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 24, 16), new THREE.MeshStandardMaterial({ color, roughness: .28, metalness: .55, emissive: color, emissiveIntensity: .4 }));
-  mesh.position.copy(position); mesh.castShadow = true; scene.add(mesh);
-  const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(position.x, position.y, position.z));
-  world.createCollider(RAPIER.ColliderDesc.ball(radius).setRestitution(1.05).setFriction(.1), body);
-}
-function addBoostPad(position: THREE.Vector3, color = 0x69e7d7) {
-  const pad = new THREE.Mesh(new THREE.BoxGeometry(3.1, .12, 2.2), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.1, metalness: .65, roughness: .24 }));
-  pad.position.copy(position); pad.rotation.x = -.08; scene.add(pad);
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(2.6, .035, .24), new THREE.MeshBasicMaterial({ color: 0xeaffff }));
-  stripe.position.copy(position).add(new THREE.Vector3(0, .09, 0)); scene.add(stripe);
-  boostPads.push(position.clone());
-}
-function addSweeper(position: THREE.Vector3, length = 5.2, speed = 1.15) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(length, .28, .42), new THREE.MeshStandardMaterial({ color: 0xff936d, emissive: 0x7b291f, emissiveIntensity: .75, metalness: .65, roughness: .25 }));
-  mesh.position.copy(position); mesh.castShadow = true; scene.add(mesh);
-  const body = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(position.x, position.y, position.z));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(length / 2, .16, .22).setRestitution(.82).setFriction(.25), body);
-  animatedHazards.push({ mesh, body, phase: seededRandom() * Math.PI * 2, speed });
-}
-function addRing(position: THREE.Vector3, radius: number, color: number) {
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, .09, 12, 72), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .8, metalness: .55, roughness: .25 }));
-  ring.position.copy(position); ring.rotation.x = Math.PI / 2; scene.add(ring);
-}
-function buildArena() {
-  boostPads.length = 0; animatedHazards.length = 0;
-  const grid = new THREE.GridHelper(150, 90, 0x24405b, 0x15283d); grid.position.y = -2; scene.add(grid);
-  // A downhill launch deck replaces the old flat waiting platform.
-  const startAngle = .16;
-  const startRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), startAngle);
-  const start = new THREE.Mesh(new THREE.BoxGeometry(10, .4, 9.5), new THREE.MeshStandardMaterial({ color: 0x1d344b, metalness: .45, roughness: .45 }));
-  start.position.set(0, 7.1, -11); start.quaternion.copy(startRotation); start.receiveShadow = true; scene.add(start);
-  const startBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, 7.1, -11).setRotation({ x: startRotation.x, y: startRotation.y, z: startRotation.z, w: startRotation.w }));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(5, .2, 4.75).setFriction(.42).setRestitution(.03), startBody);
-  // Glowing guide rails funnel the field toward the two branch entrances.
-  for (const side of [-1, 1]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(.12, .34, 8.8), new THREE.MeshStandardMaterial({ color: 0x6be6d8, emissive: 0x1d8e8a, emissiveIntensity: .65, metalness: .55, roughness: .25 }));
-    rail.position.set(side * 4.86, 7.42, -11); rail.quaternion.copy(startRotation); scene.add(rail);
-    const railBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(rail.position.x, rail.position.y, rail.position.z).setRotation({ x: startRotation.x, y: startRotation.y, z: startRotation.z, w: startRotation.w }));
-    world.createCollider(RAPIER.ColliderDesc.cuboid(.06, .17, 4.4).setRestitution(.2).setFriction(.35), railBody);
-  }
-  // The left branch is wide and forgiving; the right branch is a narrow, steeper shortcut.
-  addStaticSegment(new THREE.Vector3(-2.2, 6.3, -7), new THREE.Vector3(-2.5, 5.1, -1), 5.4, 0x23576a);
-  addStaticSegment(new THREE.Vector3(2.1, 6.1, -7), new THREE.Vector3(4.0, 3.9, -1), 1.55, 0x75405e);
-  addStaticSegment(new THREE.Vector3(-2.5, 5.1, -1), new THREE.Vector3(-2.8, 3.5, 5), 5.1, 0x23576a);
-  addStaticSegment(new THREE.Vector3(4.0, 3.9, -1), new THREE.Vector3(2.5, 2.6, 5), 1.45, 0x75405e);
-  addStaticSegment(new THREE.Vector3(-2.8, 3.5, 5), new THREE.Vector3(0, 1.6, 12), 5.6, 0x23576a);
-  addStaticSegment(new THREE.Vector3(2.5, 2.6, 5), new THREE.Vector3(0, 1.6, 12), 1.6, 0x75405e);
-  addStaticSegment(new THREE.Vector3(0, 1.6, 12), new THREE.Vector3(0, .6, 19), 7, 0x2a5065, false);
-  // The main descent winds through a long sequence of banked-feeling switchbacks.
-  addStaticSegment(new THREE.Vector3(0, .6, 19), new THREE.Vector3(-3, .05, 30), 6.2, 0x24586b);
-  addStaticSegment(new THREE.Vector3(-3, .05, 30), new THREE.Vector3(-4, -1.1, 42), 5.5, 0x28536a);
-  addStaticSegment(new THREE.Vector3(-4, -1.1, 42), new THREE.Vector3(2, -2.0, 54), 5.8, 0x24586b);
-  addStaticSegment(new THREE.Vector3(2, -2.0, 54), new THREE.Vector3(3, -2.9, 66), 5.4, 0x28536a);
-  addStaticSegment(new THREE.Vector3(3, -2.9, 66), new THREE.Vector3(-2, -3.9, 78), 5.8, 0x24586b);
-  addStaticSegment(new THREE.Vector3(-2, -3.9, 78), new THREE.Vector3(0, -5.0, 91), 6.2, 0x28536a);
-  addStaticSegment(new THREE.Vector3(0, -5.0, 91), new THREE.Vector3(0, -6.0, 102), 7, 0x2a5065, false);
-  addBoostPad(new THREE.Vector3(-3.4, -.35, 37), 0x6de8d7);
-  addBoostPad(new THREE.Vector3(2.5, -2.28, 61), 0x9a8cff);
-  addBoostPad(new THREE.Vector3(-.8, -4.35, 86), 0xffcf70);
-  addSweeper(new THREE.Vector3(-3.5, -1.35, 45), 4.5, 1.05);
-  addSweeper(new THREE.Vector3(2.6, -3.15, 69), 4.7, 1.35);
-  addBumper(new THREE.Vector3(-1.5, .3, 25), .8, 0xffb46b);
-  addBumper(new THREE.Vector3(-4.1, -1.75, 49), .8, 0x9e8cff);
-  addBumper(new THREE.Vector3(2.2, -2.7, 63), .72, 0x69e3d1);
-  addBumper(new THREE.Vector3(-1.5, -4.4, 82), .85, 0xff9b6b);
-  // Scenic checkpoint arches and light pylons make the long course readable.
-  for (let z = 25; z <= 97; z += 12) {
-    const x = z < 45 ? -3 : z < 70 ? 2.5 : z < 90 ? -1 : 0;
-    const y = z < 45 ? .35 : z < 70 ? -2.5 : z < 90 ? -4.1 : -5.4;
-    const arch = new THREE.Mesh(new THREE.TorusGeometry(3.15, .11, 8, 48), new THREE.MeshStandardMaterial({ color: z % 24 === 1 ? 0xffa36e : 0x65e5d6, emissive: z % 24 === 1 ? 0x7d321d : 0x145e59, emissiveIntensity: .85, metalness: .5, roughness: .28 }));
-    arch.position.set(x, y + 1.2, z); arch.rotation.x = Math.PI / 2; scene.add(arch);
-
-  }
-  for (let z = 24; z < 100; z += 16) {
-    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2 + (z % 3) * .25, 0), new THREE.MeshStandardMaterial({ color: 0x26374f, roughness: .92, metalness: .12 }));
-    rock.position.set((z % 32 < 16 ? -1 : 1) * (8 + (z % 5)), -1.5 - z * .045, z);
-    rock.rotation.set(z * .13, z * .21, z * .07); scene.add(rock);
-  }
-  addBumper(new THREE.Vector3(-2.7, 4.3, 1.2), .7, 0x69e3d1);
-  addBumper(new THREE.Vector3(1.5, 2.4, 8.2), .65, 0xff9b6b);
-  addBumper(new THREE.Vector3(-.2, 1.8, 15), .75, 0xa58cff);
-  addRing(new THREE.Vector3(0, -6.0, 104), 2.15, 0x73e5d4);
-  const finish = new THREE.Mesh(new THREE.CylinderGeometry(1.65, 2.2, .35, 48, 1, true), new THREE.MeshStandardMaterial({ color: 0x4bd9ca, emissive: 0x164e55, emissiveIntensity: .6, side: THREE.DoubleSide, metalness: .55, roughness: .28 }));
-  finish.position.set(0, -6.4, 104); finish.rotation.x = Math.PI / 2; scene.add(finish);
-  const finishFloor = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, -6.85, 104));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(2.6, .15, 2.6).setFriction(.7), finishFloor);
-  // Decorative pylons make the split and merge readable from the overview camera.
-  for (const x of [-5.2, 5.2]) {
-    const pylon = new THREE.Mesh(new THREE.CylinderGeometry(.08, .16, 8, 12), new THREE.MeshStandardMaterial({ color: 0x3d7890, emissive: 0x1a5366, emissiveIntensity: .5 }));
-    pylon.position.set(x, 3, 4); scene.add(pylon);
-  }
-}
-function setupScene() {
-  scene = new THREE.Scene(); scene.background = new THREE.Color(0x080e1a); scene.fog = new THREE.Fog(0x080e1a, 30, 75);
-  camera = new THREE.PerspectiveCamera(48, viewport.clientWidth / viewport.clientHeight, .1, 140);
-  camera.position.set(25, 28, 8);
-  renderer = new THREE.WebGLRenderer({ antialias: window.devicePixelRatio < 2, alpha: false, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.35)); renderer.setSize(viewport.clientWidth, viewport.clientHeight);
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
-  viewport.appendChild(renderer.domElement);
-  controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.dampingFactor = .075; controls.target.set(0, 1, 38); controls.minDistance = 7; controls.maxDistance = 90; controls.maxPolarAngle = Math.PI * .48;
-  controls.addEventListener("start", () => { manualCameraUntil = performance.now() + 5200; });
-  controls.addEventListener("end", () => { manualCameraUntil = performance.now() + 4200; });
-  scene.add(new THREE.HemisphereLight(0x9ecfff, 0x111827, 2.1));
-  const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(-8, 18, 7); key.castShadow = true; key.shadow.mapSize.set(1024, 1024); scene.add(key);
-  const rim = new THREE.PointLight(0x51dcca, 90, 38); rim.position.set(7, 8, 8); scene.add(rim);
-  const violet = new THREE.PointLight(0x9276ff, 80, 35); violet.position.set(-8, 4, 1); scene.add(violet);
-}
-function makeWorld() {
-  world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
-  world.timestep = FIXED_DT;
-  world.integrationParameters.numSolverIterations = 5;
-  world.integrationParameters.numInternalPgsIterations = 1;
-  buildArena();
-}
-function clearRacers() {
-  for (const racer of racers) { scene.remove(racer.mesh); scene.remove(racer.label); racer.mesh.geometry.dispose(); (racer.mesh.material as THREE.Material).dispose(); (racer.label.material as THREE.SpriteMaterial).map?.dispose(); racer.label.material.dispose(); }
-  racers = [];
-}
-function makeRacer(name: string, index: number) {
-  const color = colors[index % colors.length];
-  const geometry = marbleGeometry;
-  const material = new THREE.MeshStandardMaterial({ color, roughness: .2, metalness: .38, emissive: color, emissiveIntensity: .12 });
-  const mesh = new THREE.Mesh(geometry, material); mesh.castShadow = false; mesh.receiveShadow = false;
-  const x = ((index % 6) - 2.5) * 1.35;
-  const z = -10.4 - Math.floor(index / 6) * 1.0;
-  const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, 8.05 + Math.floor(index / 6) * .12, z).setLinearDamping(.025).setAngularDamping(.035).setCcdEnabled(true));
-  body.setAdditionalMass(.72, true);
-  world.createCollider(RAPIER.ColliderDesc.ball(MARBLE_RADIUS).setRestitution(.58).setFriction(.22), body);
-  const label = createLabel(name, color); scene.add(mesh, label);
-  return { name, color, body, mesh, label, finishedAt: null, recovered: false, shield: 0, boostUntil: 0, curseUntil: 0, lastBoostAt: -99 } as Racer;
-}
-function updateLeaderboard() {
-  const sorted = [...racers].sort((a,b) => {
-    if (a.finishedAt !== null && b.finishedAt !== null) return a.finishedAt - b.finishedAt;
-    if (a.finishedAt !== null) return -1;
-    if (b.finishedAt !== null) return 1;
-    return b.body.translation().z - a.body.translation().z;
-  });
-  const list = $("leaderboard"); list.innerHTML = "";
-  for (const [index, racer] of sorted.slice(0, 30).entries()) {
-    const li = document.createElement("li");
-    const time = racer.finishedAt === null ? (running ? "RACING" : "—") : `${racer.finishedAt.toFixed(2)}s`;
-    li.innerHTML = `<span class="rank">${String(index+1).padStart(2,"0")}</span><i class="marble-swatch" style="background:#${racer.color.toString(16).padStart(6,"0")};color:#${racer.color.toString(16).padStart(6,"0")}"></i><span class="racer-name"></span><span class="racer-time">${time}</span>`;
-    li.querySelector(".racer-name")!.textContent = racer.name;
-    list.appendChild(li);
-  }
-  $("finished-count").textContent = String(finishCount);
-  $("remaining-count").textContent = `${racers.length - finishCount} / ${racers.length}`;
-}
-function applyRandomEvent() {
-  if (!running || racers.length < 2) return;
-  const active = racers.filter(r => r.finishedAt === null);
-  if (!active.length) return;
-  const target = active[Math.floor(seededRandom() * active.length)];
-  const roll = seededRandom();
-  if (roll < .38) {
-    target.boostUntil = elapsed + 2.2;
-    target.body.applyImpulse({ x: (seededRandom()-.5)*2.2, y: .8, z: 4.5 }, true);
-    addFeed(`<b>BOOST</b> · ${escapeHtml(target.name)} caught a speed burst.`);
-  } else if (roll < .68) {
-    target.shield = 1;
-    addFeed(`<b>SHIELD</b> · ${escapeHtml(target.name)} gained protection.`);
-  } else {
-    const victim = active[Math.floor(seededRandom() * active.length)];
-    if (victim.shield > 0) { victim.shield--; addFeed(`<b>BLOCKED</b> · ${escapeHtml(victim.name)} resisted a curse.`); }
-    else { victim.curseUntil = elapsed + 1.3; victim.body.applyImpulse({ x: (seededRandom()-.5)*2, y: .2, z: -2.2 }, true); addFeed(`<b>CURSE</b> · ${escapeHtml(victim.name)} was slowed.`); }
-  }
-}
-function escapeHtml(value: string) { return value.replace(/[&<>"']/g, char => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[char]!)); }
-function finishRacer(racer: Racer) {
-  if (racer.finishedAt !== null) return;
-  racer.finishedAt = elapsed; finishCount++;
-  addFeed(`<b>FINISH</b> · ${escapeHtml(racer.name)} crossed the portal in ${elapsed.toFixed(2)}s.`);
-  updateLeaderboard();
-  if (finishCount === 1) {
-    winnerShown = true; $("winner-name").textContent = racer.name; $("winner-banner").classList.remove("hidden");
-    setStatus("CHAMPION CROWNED"); addFeed(`<b>🏆 WINNER</b> · ${escapeHtml(racer.name)} takes the arena!`);
-  }
-  if (finishCount === racers.length) {
-    running = false; setStatus("RACE COMPLETE"); startButton.disabled = true; resetButton.disabled = false;
-    $("event-label").textContent = "COMPLETE";
-  }
-}
-function recoverRacer(racer: Racer) {
-  if (racer.recovered || racer.finishedAt !== null) return;
-  racer.recovered = true;
-  const slot = racers.indexOf(racer);
-  racer.body.setTranslation({ x: (slot % 5 - 2) * .58, y: -6.15, z: 87 + (slot % 4) * .48 }, true);
-  racer.body.setLinvel({ x: 0, y: 0, z: 7.2 }, true);
-  addFeed(`<b>RECOVERY</b> · ${escapeHtml(racer.name)} rejoined on the recovery lane.`);
-}
-function physicsStep() {
-  elapsed += FIXED_DT;
-  world.timestep = FIXED_DT;
-  for (const hazard of animatedHazards) {
-    const angle = Math.sin(elapsed * hazard.speed + hazard.phase) * 1.12;
-    hazard.body.setNextKinematicRotation({ x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) });
-  }
-  world.step();
-  for (const racer of racers) {
-    if (racer.finishedAt !== null) continue;
-    const p = racer.body.translation();
-    if (p.z > FINISH_Z && Math.abs(p.x) < 2.45 && p.y > -8.5) finishRacer(racer);
-    if (p.y < -13 || Math.abs(p.x) > 18 || p.z > FINISH_Z + 8) recoverRacer(racer);
-    for (const pad of boostPads) {
-      if (elapsed - racer.lastBoostAt > 3.2 && tempVector.set(p.x, p.y, p.z).distanceToSquared(pad) < 3.24) {
-        racer.lastBoostAt = elapsed; racer.boostUntil = elapsed + 1.4;
-        racer.body.applyImpulse({ x: (seededRandom() - .5) * 1.2, y: .55, z: 7.2 }, true);
-        addFeed(`<b>BOOST PAD</b> · ${escapeHtml(racer.name)} hit a turbo strip!`);
-        break;
-      }
-    }
-    if (racer.curseUntil > elapsed) racer.body.setLinvel({ x: racer.body.linvel().x * .985, y: racer.body.linvel().y, z: racer.body.linvel().z * .985 }, true);
-  }
-}
-function updateCamera(dt: number) {
-  if (performance.now() < manualCameraUntil) { controls.update(); return; }
-  const active = racers.filter(r => r.finishedAt === null);
-  if (running && active.length) {
-    let focus: Racer | null = null;
-    if (cameraMode === "leader") {
-      for (const racer of active) if (!focus || racer.body.translation().z > focus.body.translation().z) focus = racer;
-    }
-    let centerX = 0, centerY = 0, centerZ = 0, minZ = Infinity, maxZ = -Infinity;
-    if (focus) {
-      const p = focus.body.translation(); centerX = p.x; centerY = p.y; centerZ = p.z;
-      minZ = maxZ = p.z;
-    } else {
-      for (const racer of active) {
-        const p = racer.body.translation(); centerX += p.x; centerY += p.y; centerZ += p.z;
-        minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
-      }
-      centerX /= active.length; centerY /= active.length; centerZ /= active.length;
-    }
-    const spread = Math.max(0, maxZ - minZ);
-    const nextTarget = tempVector.set(centerX, centerY + 1.25, centerZ + (cameraMode === "leader" ? 2 : 3));
-    cameraTarget.lerp(nextTarget, 1 - Math.exp(-dt * 4.1));
-    const distance = cameraMode === "leader" ? 13 : 17 + Math.min(spread * .24, 10);
-    const desired = tempVector.set(centerX + (cameraMode === "leader" ? 7 : 9), centerY + 8 + Math.min(spread * .06, 2), centerZ - distance);
-    camera.position.lerp(desired, 1 - Math.exp(-dt * 2.3));
-    controls.target.copy(cameraTarget);
-  } else if (!running && racers.length && finishCount === racers.length) {
-    cameraTarget.lerp(new THREE.Vector3(0, -4.8, 101), 1 - Math.exp(-dt * 1.1));
-    const finishView = new THREE.Vector3(13, 4, 82);
-    camera.position.lerp(finishView, 1 - Math.exp(-dt * .8));
-    controls.target.lerp(cameraTarget, .06);
-  } else if (!running) {
-    cameraTarget.lerp(new THREE.Vector3(0, 1, 38), 1 - Math.exp(-dt * 1.2));
-    controls.target.lerp(cameraTarget, .06);
-  }
-  controls.update();
-}
-function animate(now: number) {
-  requestAnimationFrame(animate);
-  const dt = Math.min((now - lastFrame) / 1000 || 0, .05); lastFrame = now;
-  if (running) {
-    accumulator = Math.min(accumulator + dt, FIXED_DT * 4);
-    while (accumulator >= FIXED_DT) { physicsStep(); accumulator -= FIXED_DT; }
-    eventClock += dt;
-    if (eventClock > 4.5) { eventClock = 0; applyRandomEvent(); }
-    $("race-time").textContent = `${String(Math.floor(elapsed/60)).padStart(2,"0")}:${String(Math.floor(elapsed%60)).padStart(2,"0")}.${Math.floor((elapsed%1)*10)}`;
-    if (Math.floor(elapsed * 3) !== Math.floor((elapsed - dt) * 3)) updateLeaderboard();
-  }
-  for (const hazard of animatedHazards) { const q = hazard.body.rotation(); hazard.mesh.quaternion.set(q.x,q.y,q.z,q.w); }
-  for (const racer of racers) {
-    const p = racer.body.translation(); racer.mesh.position.set(p.x,p.y,p.z);
-    racer.mesh.quaternion.set(racer.body.rotation().x,racer.body.rotation().y,racer.body.rotation().z,racer.body.rotation().w);
-    racer.label.position.set(p.x,p.y+.62,p.z);
-    const material = racer.mesh.material as THREE.MeshStandardMaterial;
-    material.emissiveIntensity = racer.boostUntil > elapsed ? .75 : racer.curseUntil > elapsed ? .02 : .12;
-  }
-  updateCamera(dt);
-  renderer.render(scene,camera);
-}
-function disposeObject(object: THREE.Object3D) {
-  object.traverse(child => {
-    const mesh = child as THREE.Mesh;
-    mesh.geometry?.dispose?.();
-    if (Array.isArray(mesh.material)) mesh.material.forEach(material => material.dispose());
-    else mesh.material?.dispose?.();
-  });
-}
-function resetArena(fromStart = false) {
-  if (!ready || !scene || !world || !renderer) return;
-  running = false; starting = fromStart; clearRacers(); world.free(); trackSegments.length = 0;
-  for (const child of [...scene.children]) {
-    if (!(child as THREE.Light).isLight) { scene.remove(child); disposeObject(child); }
-  }
-  boostPads.length = 0; animatedHazards.length = 0;
-  makeWorld();
-  $("winner-banner").classList.add("hidden"); $("race-time").textContent = "00:00.0"; $("event-label").textContent = "WAITING";
-  $("remaining-count").textContent = "—"; $("leaderboard").innerHTML = '<li class="empty-row">The race results will appear here.</li>';
-  $("finished-count").textContent = "0"; $("event-feed").innerHTML = '<span class="feed-empty">Waiting for the starting signal…</span>';
-  feedEntries = 0; finishCount = 0; winnerShown = false; elapsed = 0; eventClock = 0;
-  document.body.classList.remove("race-mode");
-  cameraMode = "pack"; $("camera-mode").textContent = "CAM: PACK";
-  camera.position.set(25, 28, 8); cameraTarget.set(0, -1, 45); controls.target.copy(cameraTarget); controls.update();
-  setStatus("ARENA READY"); startButton.disabled = !ready || starting; resetButton.disabled = true;
-  if (resizeObserver) requestAnimationFrame(() => resize());
-}
-async function startRace() {
-  if (!ready || starting || running) return;
-  const names = namesInput.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-  if (names.length < 2 || names.length > 30) { validation.textContent = "Please enter between 2 and 30 names."; validation.className = "validation error"; return; }
-  starting = true; startButton.disabled = true;
-  resetArena(true);
-  document.body.classList.add("race-mode");
-  requestAnimationFrame(() => resize());
-  seed = (Date.now() ^ names.join("|").length * 2654435761) >>> 0;
-  racers = names.map(makeRacer);
-  updateLeaderboard(); startButton.disabled = true; resetButton.disabled = true;
-  setStatus("RACERS ON THE GRID"); $("event-label").textContent = "GRID UP";
-  const countdown = $("countdown"); countdown.classList.remove("hidden");
-  for (const value of ["3","2","1","GO"]) {
-    countdown.textContent = value;
-    await new Promise(resolve => setTimeout(resolve, value === "GO" ? 450 : 700));
-    if (!ready || !starting) { countdown.classList.add("hidden"); return; }
-  }
-  countdown.classList.add("hidden");
-  if (!racers.length) return;
-  for (const racer of racers) {
-    const p = racer.body.translation();
-    racer.body.applyImpulse({ x: (seededRandom() - .5) * 1.1, y: .18, z: 2.8 + seededRandom() * 1.8 }, true);
-  }
-  starting = false; running = true; cameraMode = "pack"; $("camera-mode").textContent = "CAM: PACK"; manualCameraUntil = 0; elapsed = 0; accumulator = 0;
-  setStatus("RACE IN PROGRESS"); $("event-label").textContent = "CHAOS LIVE";
-  addFeed(`<b>START</b> · ${racers.length} racers launched. Pick your route!`);
-  resetButton.disabled = false;
-}
-function resize() {
-  if (!renderer) return;
-  const width = viewport.clientWidth, height = viewport.clientHeight;
-  camera.aspect = width / height; camera.updateProjectionMatrix(); renderer.setSize(width,height);
-}
-async function boot() {
-  await RAPIER.init();
-  setupScene(); makeWorld();
-  namesInput.addEventListener("input", updateCount);
-  startButton.addEventListener("click", () => {
-    void startRace().catch(error => {
-      console.error("Race start failed:", error);
-      starting = false; running = false; document.body.classList.remove("race-mode");
-      startButton.disabled = false; resetButton.disabled = true;
-      validation.textContent = "Race could not start. Reset the arena and try again.";
-      validation.className = "validation error"; setStatus("RACE ERROR");
-    });
-  });
-  resetButton.addEventListener("click", () => resetArena(false));
-  $("camera-mode").addEventListener("click", () => {
-    cameraMode = cameraMode === "overview" ? "pack" : cameraMode === "pack" ? "leader" : "overview";
-    $("camera-mode").textContent = cameraMode === "overview" ? "CAM: OVERVIEW" : cameraMode === "pack" ? "CAM: PACK" : "CAM: LEADER";
-    manualCameraUntil = 0;
-  });
-  window.addEventListener("resize", resize);
-  resizeObserver = new ResizeObserver(resize); resizeObserver.observe(viewport);
-  ready = true; starting = false; cameraMode = "pack"; $("camera-mode").textContent = "CAM: PACK";
-  updateCount(); resetButton.disabled = true; setStatus("ARENA READY");
-  validation.textContent = "3D engine ready. Enter 2–30 names to begin.";
-  lastFrame = performance.now(); requestAnimationFrame(animate);
-}
-void boot().catch(error => {
-  console.error("Shuffle Arena initialization failed:", error);
-  ready = false; starting = false; startButton.disabled = true; resetButton.disabled = true;
-  setStatus("ENGINE ERROR");
-  validation.textContent = "3D engine initialization failed. Reload the page or try a supported browser.";
-  validation.className = "validation error";
-});
+function updateCamera(dt:number){if(cameraMode==="overview"){temp.set(0,20,55);camera.position.lerp(temp,1-Math.exp(-dt*.7));controls.target.lerp(new THREE.Vector3(0,4,70),1-Math.exp(-dt*.7));controls.update();return}if(performance.now()<cameraHoldUntil){controls.update();return}const active=[...racers].filter(r=>r.launched&&!r.done);let target:THREE.Vector3;if(active.length){const current=active.reduce((a,b)=>a.position.z>b.position.z?a:b);target=current.position}else target=new THREE.Vector3(0,2,0);const desired=new THREE.Vector3(target.x*.45,target.y+9,target.z-24);camera.position.lerp(desired,1-Math.exp(-dt*2.2));controls.target.lerp(target,1-Math.exp(-dt*3.5));controls.update()}
+function animate(){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05);if(running)updateSimulation(dt);updateCamera(dt);if(shake>.01){camera.position.x+=(random(elapsed*70)-.5)*shake;camera.position.y+=(random(elapsed*93)-.5)*shake*.6;shake*=.86}for(const p of planets)if(!p.destroyed){p.mesh.rotation.y+=dt*.08;p.mesh.rotation.z+=dt*.025}renderer.render(scene,camera)}
+function clearDynamic(){for(const r of racers){scene.remove(r.mesh,r.trail);r.mesh.material instanceof THREE.Material&&r.mesh.material.dispose();r.trail.geometry.dispose();(r.trail.material as THREE.Material).dispose()}racers.length=0;for(const p of particles){scene.remove(p.mesh)}particles.length=0;for(const p of planets){scene.remove(p.mesh)}planets.length=0;totalDestroyed=0;elapsed=0;launchCursor=0;launchClock=0;winnerShown=false;shake=0;$("winner-banner").classList.add("hidden");$("event-feed").innerHTML='<span class="feed-empty">거대한 한 방을 준비 중…</span>';feedEntries=0;$("race-time").textContent="00:00.0";$("remaining-count").textContent="0";$("event-label").textContent="STANDBY";$("leaderboard").innerHTML='<li class="empty-row">아직 발사된 공이 없어.</li>'}
+function resetGame(){running=false;starting=false;clearDynamic();document.body.classList.remove("race-mode");startButton.disabled=false;resetButton.disabled=true;updateCount();setStatus("SYSTEM READY")}
+async function startGame(){const names=namesInput.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);if(names.length<2||names.length>30)return;starting=true;startButton.disabled=true;resetButton.disabled=true;clearDynamic();document.body.classList.add("race-mode");resize();for(let i=0;i<5;i++)makePlanet(22+i*24,0,i*5); // replaced below by full field
+  for(let i=0;i<planets.length;i++){scene.remove(planets[i].mesh)}planets.length=0;
+  for(let row=0;row<5;row++)for(let col=0;col<5;col++)makePlanet(24+row*30,(col-2)*6+((row+col)%2)*1.4,row*5+col);
+  names.forEach((name,i)=>racers.push(makeRacer(name,i)));updateLeaderboard();const countdown=$("countdown");countdown.classList.remove("hidden");setStatus("BAT CHARGING");for(const n of ["3","2","1","SWING!"]){countdown.textContent=n;await new Promise(resolve=>setTimeout(resolve,n==="SWING!"?500:650));if(!starting)return}countdown.classList.add("hidden");starting=false;running=true;cameraMode="follow";cameraHoldUntil=0;setStatus("LAUNCH SEQUENCE LIVE");$("event-label").textContent="SMASHING";addFeed(`<b>SWING!</b> · The cosmic bat is ready. ${names.length} balls incoming!`);resetButton.disabled=false}
+function resize(){if(!renderer)return;const w=viewport.clientWidth,h=viewport.clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h)}
+async function boot(){scene=new THREE.Scene();scene.background=new THREE.Color(0x070817);scene.fog=new THREE.FogExp2(0x08091a,.0025);camera=new THREE.PerspectiveCamera(54,1,.1,600);camera.position.set(0,10,-25);renderer=new THREE.WebGLRenderer({antialias:window.devicePixelRatio<2,powerPreference:"high-performance"});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(viewport.clientWidth,viewport.clientHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.22;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;viewport.appendChild(renderer.domElement);controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.08;controls.minDistance=8;controls.maxDistance=100;controls.addEventListener("start",()=>cameraHoldUntil=performance.now()+5000);controls.addEventListener("end",()=>cameraHoldUntil=performance.now()+3500);scene.add(new THREE.HemisphereLight(0xaaaaff,0x171027,2.1));const key=new THREE.DirectionalLight(0xffffff,3.2);key.position.set(-10,20,-5);key.castShadow=true;key.shadow.mapSize.set(1024,1024);scene.add(key);const fill=new THREE.PointLight(0x8b63ff,45,120);fill.position.set(0,15,35);scene.add(fill);const rim=new THREE.PointLight(0xff6ba9,38,100);rim.position.set(12,5,80);scene.add(rim);buildGalaxy();namesInput.addEventListener("input",updateCount);startButton.addEventListener("click",()=>void startGame().catch(e=>{console.error(e);starting=false;startButton.disabled=false;setStatus("LAUNCH ERROR")}));resetButton.addEventListener("click",resetGame);$("camera-mode").addEventListener("click",()=>{cameraMode=cameraMode==="follow"?"overview":"follow";$("camera-mode").textContent=cameraMode==="follow"?"CAM: FOLLOW":"CAM: OVERVIEW";cameraHoldUntil=0});window.addEventListener("resize",resize);ready=true;updateCount();resetButton.disabled=true;setStatus("SYSTEM READY");requestAnimationFrame(animate)}
+void boot().catch(e=>{console.error("Cosmic Slugger failed to initialize",e);setStatus("SYSTEM ERROR");validation.textContent="3D 엔진을 시작하지 못했어. 브라우저를 새로고침해 줘.";validation.className="validation error"});

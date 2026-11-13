@@ -3,47 +3,54 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#090d18" />
-    <meta name="description" content="A classroom-sized 3D marble race arena." />
-    <title>Shuffle Arena — Marble Race</title>
+    <meta name="theme-color" content="#070914" />
+    <meta name="description" content="Cosmic Slugger — launch your class into the galaxy." />
+    <title>COSMIC SLUGGER — Space Smash</title>
   </head>
   <body>
     <div id="app">
       <header class="topbar">
-        <a class="brand" href="#" aria-label="Shuffle Arena home"><span class="brand-mark">S</span><span>SHUFFLE<span class="brand-muted"> ARENA</span></span></a>
-        <div class="top-status"><span class="live-dot"></span><span id="status-label">ARENA READY</span></div>
-        <button id="camera-mode" class="ghost-button" type="button">CAM: OVERVIEW</button>
+        <a class="brand" href="#" aria-label="Cosmic Slugger"><span class="brand-mark">✦</span><span>COSMIC <i>SLUGGER</i></span></a>
+        <div class="top-status"><span class="live-dot"></span><span id="status-label">SYSTEM READY</span></div>
+        <button id="camera-mode" class="ghost-button" type="button">CAM: FOLLOW</button>
       </header>
       <main class="layout">
         <section class="stage-panel">
-          <div class="stage-heading"><div><p class="eyebrow">3D MARBLE GRAND PRIX</p><h1>Every route has a risk.</h1><p class="subheading">30 racers. One finish. Infinite chaos.</p></div><div class="stage-tag">SEASON 01 <span>•</span> VORTEX RUN</div></div>
-          <div class="viewport-wrap">
-            <div id="viewport" aria-label="3D marble race arena"></div>
-            <div class="viewport-vignette"></div>
-            <div class="race-hud"><div class="hud-chip"><span class="hud-label">RACE TIME</span><strong id="race-time">00:00.0</strong></div><div class="hud-chip"><span class="hud-label">RACERS</span><strong id="remaining-count">—</strong></div><div class="hud-chip"><span class="hud-label">EVENT</span><strong id="event-label">WAITING</strong></div></div>
-            <div id="countdown" class="countdown hidden">3</div>
-            <div id="winner-banner" class="winner-banner hidden"><span class="winner-kicker">CHAMPION</span><strong id="winner-name">—</strong><span id="winner-caption">FIRST THROUGH THE PORTAL</span></div>
-            <div class="camera-hint">DRAG TO ORBIT <span>·</span> SCROLL TO ZOOM</div>
+          <div class="stage-heading">
+            <div><p class="eyebrow">INTERGALACTIC POWER LEAGUE</p><h1>One swing. <em>A whole universe.</em></h1><p class="subheading">Get launched. Break planets. Make history.</p></div>
+            <div class="stage-tag">SECTOR <b>∞</b> <span>●</span> DEEP SPACE</div>
           </div>
-          <div class="stage-footer"><span><i class="legend-dot safe"></i> STANDARD ROUTE <small>WIDE / STABLE</small></span><span><i class="legend-dot risk"></i> SHORTCUT <small>NARROW / HIGH RISK</small></span><span class="physics-label">● RAPIER PHYSICS</span></div>
+          <div class="viewport-wrap">
+            <div id="viewport" aria-label="3D cosmic baseball launch arena"></div>
+            <div class="viewport-vignette"></div>
+            <div class="race-hud">
+              <div class="hud-chip"><span class="hud-label">FLIGHT TIME</span><strong id="race-time">00:00.0</strong></div>
+              <div class="hud-chip"><span class="hud-label">PLANETS SMASHED</span><strong id="remaining-count">0</strong></div>
+              <div class="hud-chip"><span class="hud-label">LAUNCH STATUS</span><strong id="event-label">STANDBY</strong></div>
+            </div>
+            <div id="countdown" class="countdown hidden">3</div>
+            <div id="impact-flash" class="impact-flash"></div>
+            <div id="winner-banner" class="winner-banner hidden"><span class="winner-kicker">GALACTIC MVP</span><strong id="winner-name">—</strong><span id="winner-caption">THE BIGGEST PLANET SMASHER</span></div>
+            <div class="camera-hint">AUTO FOLLOW <span>✦</span> CINEMATIC IMPACT CAM</div>
+          </div>
+          <div class="stage-footer"><span><i class="legend-dot ball"></i> STUDENT LAUNCHES</span><span><i class="legend-dot planet"></i> DESTRUCTIBLE PLANETS</span><span class="physics-label">● COSMIC IMPACT ENGINE</span></div>
         </section>
         <aside class="control-panel">
-          <div class="panel-title"><div><p class="eyebrow">TEACHER CONTROL</p><h2>Race setup</h2></div><span class="panel-icon">✦</span></div>
-          <label class="field-label" for="names">PARTICIPANT NAMES <span id="name-count">0 / 30</span></label>
+          <div class="panel-title"><div><p class="eyebrow">MISSION CONTROL</p><h2>Launch roster</h2></div><span class="panel-icon">✦</span></div>
+          <label class="field-label" for="names">ASTRONAUT NAMES <span id="name-count">0 / 30</span></label>
           <textarea id="names" spellcheck="false" placeholder="한 줄에 한 명씩 입력하세요&#10;예)&#10;민수&#10;지우&#10;서연"></textarea>
-          <div class="field-note">줄바꿈으로 이름을 구분해. 빈 줄은 자동으로 제외돼.</div>
-          <div class="setup-row"><label class="field-label" for="race-map">TRACK</label><select id="race-map"><option value="vortex">VORTEX RUN · Branching</option></select></div>
-          <div class="route-info"><div class="route-icon safe-icon">↗</div><div><strong>Two ways down</strong><span>Wide safe lane or a tight shortcut.</span></div><span class="route-badge">RISK / REWARD</span></div>
-          <button id="start-race" class="primary-button" type="button" disabled><span>START RACE</span><b>↗</b></button>
-          <button id="reset-race" class="secondary-button" type="button" disabled>RESET ARENA</button>
-          <div id="validation" class="validation" aria-live="polite">Enter 2–30 names to get started.</div>
+          <div class="field-note">이름을 한 줄씩 입력하면 각자의 공이 만들어져. 빈 줄은 무시돼.</div>
+          <div class="launch-info"><span class="launch-icon">⚾</span><div><strong>THE COSMIC BAT</strong><small>MAXIMUM POWER · ZERO GRAVITY</small></div><b>MAX</b></div>
+          <button id="start-race" class="primary-button" type="button" disabled><span>START THE SMASH</span><b>↗</b></button>
+          <button id="reset-race" class="secondary-button" type="button" disabled>RESET GALAXY</button>
+          <div id="validation" class="validation" aria-live="polite">2–30명의 이름을 입력해.</div>
           <div class="panel-divider"></div>
-          <div class="panel-title compact"><div><p class="eyebrow">LIVE STANDINGS</p><h2>Leaderboard <span id="finished-count">0</span></h2></div><span class="live-pill">LIVE</span></div>
-          <ol id="leaderboard" class="leaderboard"><li class="empty-row">The race results will appear here.</li></ol>
-          <div class="event-panel"><p class="eyebrow">ARENA FEED</p><div id="event-feed"><span class="feed-empty">Waiting for the starting signal…</span></div></div>
+          <div class="panel-title compact"><div><p class="eyebrow">GALACTIC SCOREBOARD</p><h2>Top smashers <span id="finished-count">0</span></h2></div><span class="live-pill">LIVE</span></div>
+          <ol id="leaderboard" class="leaderboard"><li class="empty-row">아직 발사된 공이 없어.</li></ol>
+          <div class="event-panel"><p class="eyebrow">MISSION LOG</p><div id="event-feed"><span class="feed-empty">거대한 한 방을 준비 중…</span></div></div>
         </aside>
       </main>
-      <footer class="footer"><span>SHUFFLE ARENA <span class="brand-muted">/ CLASSROOM EDITION</span></span><span>BUILT FOR THE CHAOS.</span></footer>
+      <footer class="footer"><span>COSMIC SLUGGER <i>/ CLASSROOM EDITION</i></span><span>SWING BIG. SMASH BIGGER.</span></footer>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
