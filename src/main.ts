@@ -13,6 +13,9 @@ const resetButton = $("reset-race") as HTMLButtonElement;
 const validation = $("validation");
 const colors = [0x59d9ff,0xff806e,0xa98cff,0xffd166,0x63e6a5,0xff79bd,0x8ca8ff,0xffa65c,0x5de0d0,0xd8a2ff,0xc5e86c,0xff8c8c,0x71b8ff,0xf2a66f,0x9ce2a2,0xe7a4e8,0x6ce0f2,0xf1d26f,0xb5a0ff,0xff9e75,0x7ee0b1,0x8ca5ee,0xff7fa4,0xb7db70,0x78d6d0,0xd39bff,0xffc078,0x8bbcff,0xe6a2a2,0x9fddb3];
 const FIXED_DT = 1 / 60;
+const MARBLE_RADIUS = .34;
+const marbleGeometry = new THREE.SphereGeometry(MARBLE_RADIUS, 18, 14);
+const tempVector = new THREE.Vector3();
 const FINISH_Z = 104.5;
 let ready = false;
 let starting = false;
@@ -94,6 +97,12 @@ function addStaticSegment(a: THREE.Vector3, b: THREE.Vector3, width: number, col
       world.createCollider(RAPIER.ColliderDesc.cuboid(.07, .275, length / 2).setFriction(.5), railBody);
     }
   }
+  const edgeMaterial = new THREE.MeshBasicMaterial({ color: color === 0x75405e ? 0xff9a82 : 0x66e6d7 });
+  for (const side of [-1, 1]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(.055, .035, length), edgeMaterial);
+    edge.position.copy(center).add(new THREE.Vector3(side * (width / 2 - .12), .19, 0).applyQuaternion(rotation));
+    edge.quaternion.copy(rotation); scene.add(edge);
+  }
   trackSegments.push({ a, b, width, color });
 }
 function addBumper(position: THREE.Vector3, radius: number, color: number) {
@@ -123,10 +132,18 @@ function addRing(position: THREE.Vector3, radius: number, color: number) {
 function buildArena() {
   boostPads.length = 0; animatedHazards.length = 0;
   const grid = new THREE.GridHelper(150, 90, 0x24405b, 0x15283d); grid.position.y = -2; scene.add(grid);
+  // A downhill launch deck replaces the old flat waiting platform.
+  const startAngle = .16;
+  const startRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), startAngle);
   const start = new THREE.Mesh(new THREE.BoxGeometry(10, .4, 9.5), new THREE.MeshStandardMaterial({ color: 0x1d344b, metalness: .45, roughness: .45 }));
-  start.position.set(0, 7.1, -11); start.receiveShadow = true; scene.add(start);
-  const startBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, 7.1, -11));
-  world.createCollider(RAPIER.ColliderDesc.cuboid(5, .2, 4.75).setFriction(.8), startBody);
+  start.position.set(0, 7.1, -11); start.quaternion.copy(startRotation); start.receiveShadow = true; scene.add(start);
+  const startBody = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0, 7.1, -11).setRotation({ x: startRotation.x, y: startRotation.y, z: startRotation.z, w: startRotation.w }));
+  world.createCollider(RAPIER.ColliderDesc.cuboid(5, .2, 4.75).setFriction(.42).setRestitution(.03), startBody);
+  // Glowing guide rails funnel the field toward the two branch entrances.
+  for (const side of [-1, 1]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(.12, .34, 8.8), new THREE.MeshStandardMaterial({ color: 0x6be6d8, emissive: 0x1d8e8a, emissiveIntensity: .65, metalness: .55, roughness: .25 }));
+    rail.position.set(side * 4.86, 7.42, -11); rail.quaternion.copy(startRotation); scene.add(rail);
+  }
   // The left branch is wide and forgiving; the right branch is a narrow, steeper shortcut.
   addStaticSegment(new THREE.Vector3(-2.2, 6.3, -7), new THREE.Vector3(-2.5, 5.1, -1), 5.4, 0x23576a);
   addStaticSegment(new THREE.Vector3(2.1, 6.1, -7), new THREE.Vector3(4.0, 3.9, -1), 1.55, 0x75405e);
@@ -152,9 +169,19 @@ function buildArena() {
   addBumper(new THREE.Vector3(-4.1, -1.75, 49), .8, 0x9e8cff);
   addBumper(new THREE.Vector3(2.2, -2.7, 63), .72, 0x69e3d1);
   addBumper(new THREE.Vector3(-1.5, -4.4, 82), .85, 0xff9b6b);
-  for (let z = 28; z <= 96; z += 8) {
-    const marker = new THREE.Mesh(new THREE.TorusGeometry(3.8, .035, 6, 48), new THREE.MeshBasicMaterial({ color: z % 16 === 4 ? 0xffa36e : 0x5cddcf, transparent: true, opacity: .38 }));
-    marker.position.set(0, -z * .055, z); marker.rotation.x = Math.PI / 2; scene.add(marker);
+  // Scenic checkpoint arches and light pylons make the long course readable.
+  for (let z = 25; z <= 97; z += 12) {
+    const x = z < 45 ? -3 : z < 70 ? 2.5 : z < 90 ? -1 : 0;
+    const y = z < 45 ? .35 : z < 70 ? -2.5 : z < 90 ? -4.1 : -5.4;
+    const arch = new THREE.Mesh(new THREE.TorusGeometry(3.15, .11, 8, 48), new THREE.MeshStandardMaterial({ color: z % 24 === 1 ? 0xffa36e : 0x65e5d6, emissive: z % 24 === 1 ? 0x7d321d : 0x145e59, emissiveIntensity: .85, metalness: .5, roughness: .28 }));
+    arch.position.set(x, y + 1.2, z); arch.rotation.x = Math.PI / 2; scene.add(arch);
+    const beacon = new THREE.PointLight(z % 24 === 1 ? 0xffa36e : 0x52dfd0, 26, 13);
+    beacon.position.set(x, y + 4.4, z); scene.add(beacon);
+  }
+  for (let z = 24; z < 100; z += 16) {
+    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(1.2 + (z % 3) * .25, 0), new THREE.MeshStandardMaterial({ color: 0x26374f, roughness: .92, metalness: .12 }));
+    rock.position.set((z % 32 < 16 ? -1 : 1) * (8 + (z % 5)), -1.5 - z * .045, z);
+    rock.rotation.set(z * .13, z * .21, z * .07); scene.add(rock);
   }
   addBumper(new THREE.Vector3(-2.7, 4.3, 1.2), .7, 0x69e3d1);
   addBumper(new THREE.Vector3(1.5, 2.4, 8.2), .65, 0xff9b6b);
@@ -174,23 +201,23 @@ function setupScene() {
   scene = new THREE.Scene(); scene.background = new THREE.Color(0x080e1a); scene.fog = new THREE.Fog(0x080e1a, 30, 75);
   camera = new THREE.PerspectiveCamera(48, viewport.clientWidth / viewport.clientHeight, .1, 140);
   camera.position.set(25, 28, 8);
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8)); renderer.setSize(viewport.clientWidth, viewport.clientHeight);
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+  renderer = new THREE.WebGLRenderer({ antialias: window.devicePixelRatio < 2, alpha: false, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.35)); renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.1;
   viewport.appendChild(renderer.domElement);
   controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.dampingFactor = .075; controls.target.set(0, 1, 38); controls.minDistance = 7; controls.maxDistance = 90; controls.maxPolarAngle = Math.PI * .48;
   controls.addEventListener("start", () => { manualCameraUntil = performance.now() + 5200; });
   controls.addEventListener("end", () => { manualCameraUntil = performance.now() + 4200; });
   scene.add(new THREE.HemisphereLight(0x9ecfff, 0x111827, 2.1));
-  const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(-8, 18, 7); key.castShadow = true; key.shadow.mapSize.set(2048, 2048); scene.add(key);
+  const key = new THREE.DirectionalLight(0xffffff, 3.2); key.position.set(-8, 18, 7); key.castShadow = true; key.shadow.mapSize.set(1024, 1024); scene.add(key);
   const rim = new THREE.PointLight(0x51dcca, 90, 38); rim.position.set(7, 8, 8); scene.add(rim);
   const violet = new THREE.PointLight(0x9276ff, 80, 35); violet.position.set(-8, 4, 1); scene.add(violet);
 }
 function makeWorld() {
   world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
   world.timestep = FIXED_DT;
-  world.integrationParameters.numSolverIterations = 8;
-  world.integrationParameters.numInternalPgsIterations = 2;
+  world.integrationParameters.numSolverIterations = 5;
+  world.integrationParameters.numInternalPgsIterations = 1;
   buildArena();
 }
 function clearRacers() {
@@ -199,14 +226,14 @@ function clearRacers() {
 }
 function makeRacer(name: string, index: number) {
   const color = colors[index % colors.length];
-  const geometry = new THREE.SphereGeometry(.34, 28, 20);
+  const geometry = marbleGeometry;
   const material = new THREE.MeshStandardMaterial({ color, roughness: .2, metalness: .38, emissive: color, emissiveIntensity: .12 });
-  const mesh = new THREE.Mesh(geometry, material); mesh.castShadow = true; mesh.receiveShadow = true;
+  const mesh = new THREE.Mesh(geometry, material); mesh.castShadow = false; mesh.receiveShadow = false;
   const x = ((index % 6) - 2.5) * 1.35;
   const z = -10.4 - Math.floor(index / 6) * 1.0;
-  const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, 9 + Math.floor(index / 6) * .15, z).setLinearDamping(.12).setAngularDamping(.08).setCcdEnabled(true));
-  body.setAdditionalMass(1.2, true);
-  world.createCollider(RAPIER.ColliderDesc.ball(.34).setRestitution(.48).setFriction(.34), body);
+  const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x, 8.05 + Math.floor(index / 6) * .12, z).setLinearDamping(.025).setAngularDamping(.035).setCcdEnabled(true));
+  body.setAdditionalMass(.72, true);
+  world.createCollider(RAPIER.ColliderDesc.ball(MARBLE_RADIUS).setRestitution(.58).setFriction(.22), body);
   const label = createLabel(name, color); scene.add(mesh, label);
   return { name, color, body, mesh, label, finishedAt: null, recovered: false, shield: 0, boostUntil: 0, curseUntil: 0, lastBoostAt: -99 } as Racer;
 }
@@ -274,7 +301,7 @@ function physicsStep() {
   elapsed += FIXED_DT;
   world.timestep = FIXED_DT;
   for (const hazard of animatedHazards) {
-    const angle = Math.sin(elapsed * hazard.speed + hazard.phase) * .92;
+    const angle = Math.sin(elapsed * hazard.speed + hazard.phase) * 1.12;
     hazard.body.setNextKinematicRotation({ x: 0, y: Math.sin(angle / 2), z: 0, w: Math.cos(angle / 2) });
   }
   world.step();
@@ -284,7 +311,7 @@ function physicsStep() {
     if (p.z > FINISH_Z && Math.abs(p.x) < 2.45 && p.y > -8.5) finishRacer(racer);
     if (p.y < -13 || Math.abs(p.x) > 18 || p.z > FINISH_Z + 8) recoverRacer(racer);
     for (const pad of boostPads) {
-      if (elapsed - racer.lastBoostAt > 3.2 && new THREE.Vector3(p.x, p.y, p.z).distanceTo(pad) < 1.8) {
+      if (elapsed - racer.lastBoostAt > 3.2 && tempVector.set(p.x, p.y, p.z).distanceToSquared(pad) < 3.24) {
         racer.lastBoostAt = elapsed; racer.boostUntil = elapsed + 1.4;
         racer.body.applyImpulse({ x: (seededRandom() - .5) * 1.2, y: .55, z: 7.2 }, true);
         addFeed(`<b>BOOST PAD</b> · ${escapeHtml(racer.name)} hit a turbo strip!`);
@@ -298,9 +325,10 @@ function updateCamera(dt: number) {
   if (performance.now() < manualCameraUntil) { controls.update(); return; }
   const active = racers.filter(r => r.finishedAt === null);
   if (running && active.length) {
-    const focus = cameraMode === "leader"
-      ? ([...active].sort((a,b) => b.body.translation().z-a.body.translation().z)[0] ?? active[0])
-      : null;
+    let focus: Racer | null = null;
+    if (cameraMode === "leader") {
+      for (const racer of active) if (!focus || racer.body.translation().z > focus.body.translation().z) focus = racer;
+    }
     let centerX = 0, centerY = 0, centerZ = 0, minZ = Infinity, maxZ = -Infinity;
     if (focus) {
       const p = focus.body.translation(); centerX = p.x; centerY = p.y; centerZ = p.z;
@@ -313,11 +341,11 @@ function updateCamera(dt: number) {
       centerX /= active.length; centerY /= active.length; centerZ /= active.length;
     }
     const spread = Math.max(0, maxZ - minZ);
-    const nextTarget = new THREE.Vector3(centerX, centerY + 1.5, centerZ + (cameraMode === "leader" ? 2 : 3));
-    cameraTarget.lerp(nextTarget, 1 - Math.exp(-dt * 3.2));
-    const distance = cameraMode === "leader" ? 15 : 19 + Math.min(spread * .34, 13);
-    const desired = new THREE.Vector3(centerX + (cameraMode === "leader" ? 8 : 12), centerY + 10 + Math.min(spread * .08, 3), centerZ - distance);
-    camera.position.lerp(desired, 1 - Math.exp(-dt * 1.65));
+    const nextTarget = tempVector.set(centerX, centerY + 1.25, centerZ + (cameraMode === "leader" ? 2 : 3));
+    cameraTarget.lerp(nextTarget, 1 - Math.exp(-dt * 4.1));
+    const distance = cameraMode === "leader" ? 13 : 17 + Math.min(spread * .24, 10);
+    const desired = tempVector.set(centerX + (cameraMode === "leader" ? 7 : 9), centerY + 8 + Math.min(spread * .06, 2), centerZ - distance);
+    camera.position.lerp(desired, 1 - Math.exp(-dt * 2.3));
     controls.target.copy(cameraTarget);
   } else if (!running && racers.length && finishCount === racers.length) {
     cameraTarget.lerp(new THREE.Vector3(0, -4.8, 101), 1 - Math.exp(-dt * 1.1));
@@ -334,7 +362,7 @@ function animate(now: number) {
   requestAnimationFrame(animate);
   const dt = Math.min((now - lastFrame) / 1000 || 0, .05); lastFrame = now;
   if (running) {
-    accumulator += dt;
+    accumulator = Math.min(accumulator + dt, FIXED_DT * 4);
     while (accumulator >= FIXED_DT) { physicsStep(); accumulator -= FIXED_DT; }
     eventClock += dt;
     if (eventClock > 4.5) { eventClock = 0; applyRandomEvent(); }
@@ -398,6 +426,10 @@ async function startRace() {
   }
   countdown.classList.add("hidden");
   if (!racers.length) return;
+  for (const racer of racers) {
+    const p = racer.body.translation();
+    racer.body.applyImpulse({ x: (seededRandom() - .5) * 1.1, y: .18, z: 2.8 + seededRandom() * 1.8 }, true);
+  }
   starting = false; running = true; cameraMode = "pack"; $("camera-mode").textContent = "CAM: PACK"; manualCameraUntil = 0; elapsed = 0; accumulator = 0;
   setStatus("RACE IN PROGRESS"); $("event-label").textContent = "CHAOS LIVE";
   addFeed(`<b>START</b> · ${racers.length} racers launched. Pick your route!`);
