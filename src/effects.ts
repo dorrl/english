@@ -127,12 +127,22 @@ export class Sound {
     oscillator.connect(gain).connect(this.master); this.track(oscillator, [gain]); oscillator.start(t); oscillator.stop(t + duration + .02);
   }
   tick(final = false) { this.tone(final ? 660 : 330, final ? 880 : 330, .14, .15, 'triangle'); }
-  charge() {
+  charge(duration = 1.45) {
     if (!this.context || !this.master) return;
     const t = this.context.currentTime, oscillator = this.context.createOscillator(), gain = this.context.createGain();
-    oscillator.type = 'sawtooth'; oscillator.frequency.setValueAtTime(42, t); oscillator.frequency.exponentialRampToValueAtTime(330, t + 1.35);
-    gain.gain.setValueAtTime(.0001, t); gain.gain.linearRampToValueAtTime(.045, t + 1.1); gain.gain.linearRampToValueAtTime(0, t + 1.4);
-    oscillator.connect(gain).connect(this.master); this.track(oscillator, [gain]); this.chargeOscillator = oscillator; oscillator.start(t); oscillator.stop(t + 1.42);
+    oscillator.type = 'sawtooth'; oscillator.frequency.setValueAtTime(42, t); oscillator.frequency.exponentialRampToValueAtTime(330, t + duration);
+    gain.gain.setValueAtTime(.0001, t); gain.gain.linearRampToValueAtTime(.045, t + duration * .8); gain.gain.linearRampToValueAtTime(0, t + duration);
+    oscillator.connect(gain).connect(this.master); this.track(oscillator, [gain]); this.chargeOscillator = oscillator; oscillator.start(t); oscillator.stop(t + duration + .02);
+  }
+  swing(duration: number) {
+    if (!this.context || !this.master || !this.noise) return;
+    const ctx = this.context, t = ctx.currentTime;
+    const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+    source.buffer = this.noise; source.playbackRate.value = .8;
+    filter.type = 'bandpass'; filter.Q.value = .65;
+    filter.frequency.setValueAtTime(280, t); filter.frequency.exponentialRampToValueAtTime(4200, t + duration);
+    gain.gain.setValueAtTime(.0001, t); gain.gain.exponentialRampToValueAtTime(.18, t + duration * .92); gain.gain.linearRampToValueAtTime(0, t + duration + .015);
+    source.connect(filter).connect(gain).connect(this.master); this.track(source, [filter, gain]); source.start(t); source.stop(t + duration + .02);
   }
   impact(bat = false, volume = 1) {
     if (!this.context || !this.master || !this.noise) return;

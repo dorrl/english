@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#060c16" />
-    <meta name="description" content="우리 반의 우주 대결, Cosmic Slugger." />
-    <title>COSMIC SLUGGER</title>
+    <meta name="description" content="영어시간에 쓸거" />
+    <title>English</title>
   </head>
   <body data-phase="idle">
     <div id="app">
       <header class="topbar">
-        <a class="brand" href="./" aria-label="Cosmic Slugger 홈"><span class="brand-mark" aria-hidden="true">✳</span><span>COSMIC <b>SLUGGER</b></span></a>
+        <a class="brand" href="./" aria-label="Cosmic Slugger 홈"><span>Boom <b>Planet</b></span></a>
       </header>
       <main class="layout">
         <section class="stage-panel" aria-label="우주 경기장">
@@ -26,7 +26,7 @@
             <div id="impact-flash" class="impact-flash"></div>
             <div id="target-reticle" class="target-reticle hidden" aria-hidden="true"><i></i></div>
             <div id="countdown" class="countdown hidden" aria-hidden="true">3</div>
-            <div class="flight-telemetry"><i id="focus-color"></i><strong id="focus-name"></strong><span id="focus-distance">0 m</span></div>
+            <div class="flight-telemetry"><i id="focus-color"></i><strong id="focus-name"></strong><span id="focus-score">0점</span></div>
             <div class="power-meter" role="img" aria-label="배트 충전"><div class="power-track"><i id="charge-fill"></i></div></div>
             <div class="flight-progress" role="img" aria-label="비행 진행률"><i id="flight-fill"></i></div>
             <div id="winner-banner" class="winner-banner hidden" role="dialog" aria-modal="true" aria-labelledby="winner-name" aria-describedby="winner-rule">
@@ -34,10 +34,11 @@
                 <div class="result-hero">
                   <div class="winner-emblem" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="29"/><circle cx="32" cy="32" r="24"/><path d="m17 24 8 7 7-12 7 12 8-7-4 20H21l-4-20Z"/><path d="M23 49h18"/></svg></div>
                   <span class="winner-label">우승</span><h2 id="winner-name">—</h2>
+                  <div class="winner-total"><b id="winner-score">0</b><span>점</span></div>
                 </div>
                 <div class="winner-stats"><div><b id="winner-planets">0</b><span>행성 파괴</span></div><div><b id="winner-distance">0</b><span>비행 거리 · m</span></div></div>
                 <ol id="winner-podium" class="winner-podium" aria-label="최종 상위 3명"></ol>
-                <p id="winner-rule">행성 파괴 수 → 비행 거리</p>
+                <p id="winner-rule">행성 1개 150점 + 거리 1m 1점</p>
                 <div class="result-actions"><button id="winner-replay" class="primary-button" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 15 10l-8 5.5Z"/></svg>다시 시작</button><button id="winner-close" class="result-reset" type="button">명단 수정</button></div>
               </article>
             </div>
@@ -46,15 +47,15 @@
         <aside class="control-panel" aria-label="경기 준비와 실시간 순위">
           <div class="roster-setup">
             <label class="field-label" for="names">참가자 <span id="name-count">00 / 30</span></label>
-            <textarea id="names" spellcheck="false" placeholder="민수&#10;지우&#10;서연" aria-describedby="validation"></textarea>
+            <textarea id="names" spellcheck="false" placeholder="줄바꿈으로 사람 구분" aria-describedby="validation"></textarea>
             <div id="validation" class="validation" aria-live="polite">한 줄에 한 명씩, 2–30명</div>
             <button id="start-race" class="primary-button" type="button" disabled>시작 <span aria-hidden="true">↗</span></button>
           </div>
           <div class="scoreboard-panel">
-            <div class="panel-title"><h2>순위</h2><span id="roster-total">00</span></div>
-            <div class="scoreboard-columns"><span>이름</span><span>파괴 · 거리</span></div>
-            <ol id="leaderboard" class="leaderboard" aria-label="행성 파괴 수와 비행 거리순 순위"><li class="empty-row">—</li></ol>
-            <div class="ranking-note"><span>파괴 수 → 거리</span><span>완주 <b id="finished-count">0 / 0</b></span></div>
+            <div class="panel-title"><h2><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m4 7 4 4 4-7 4 7 4-4-2 11H6L4 7Z"/><path d="M8 21h8"/></svg>순위</h2><span id="roster-total" aria-label="참가 인원">00</span></div>
+            <ol id="leaderboard" class="leaderboard" aria-label="행성 파괴 점수와 비행 거리 점수를 합산한 순위"><li class="empty-row">—</li></ol>
+            <div class="completion-track" aria-hidden="true"><i id="completion-fill"></i></div>
+            <div class="ranking-note"><span id="score-rule">행성 × 150 + 거리</span><span>완주 <b id="finished-count">0 / 0</b></span></div>
           </div>
           <button id="reset-race" class="secondary-button" type="button" disabled>처음으로</button>
         </aside>

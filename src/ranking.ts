@@ -18,6 +18,7 @@ export class RankingMotion {
     for (const { row, delta } of offsets) {
       if (Math.abs(delta) < .5) continue;
       row.style.zIndex = delta > 0 ? '3' : '2';
+      row.dataset.rankMotion = delta > 0 ? 'up' : 'down';
       const animation = row.animate(
         [{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }],
         { duration: 560, easing: 'cubic-bezier(.22, 1, .36, 1)' },
@@ -27,6 +28,7 @@ export class RankingMotion {
         if (this.animations.get(row) !== animation) return;
         this.animations.delete(row);
         row.style.removeProperty('z-index');
+        delete row.dataset.rankMotion;
       };
     }
   }
@@ -35,6 +37,7 @@ export class RankingMotion {
     for (const [row, animation] of this.animations) {
       animation.cancel();
       row.style.removeProperty('z-index');
+      delete row.dataset.rankMotion;
     }
     this.animations.clear();
   }
