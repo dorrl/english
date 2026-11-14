@@ -8,6 +8,7 @@ export type Flight = {
 export type World = { position: Vector; radius: number; destroyed: boolean };
 export const STEP = 1 / 120;
 export const FINISH_DISTANCE = 930;
+export const WORLD_LAYERS = 3;
 export function random(seed: number) {
   const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
@@ -24,13 +25,18 @@ export function createFlight(name: string, index: number): Flight {
 }
 export function createWorldLayout() {
   const worlds: (World & { index: number })[] = [];
-  for (let row = 0; row < 30; row++) {
-    for (let col = 0; col < 9; col++) {
-      const index = row * 9 + col;
-      const z = 32 + row * 30 + random(index + 131) * 10;
-      const x = (col - 4) * 8 + (random(index + 213) - .5) * 4;
-      const y = 2 + z * .077 - z * z * .00016 + (random(index + 317) - .5) * (Math.abs(col - 4) > 2 ? 42 : 21);
-      worlds.push({ index, position: { x, y, z }, radius: 2.5 + random(index + 9) * 1.6, destroyed: false });
+  // Extend upward by whole bands, keeping the original lower field and the
+  // same number of planets per unit of vertical volume in every column.
+  for (let layer = 0; layer < WORLD_LAYERS; layer++) {
+    for (let row = 0; row < 30; row++) {
+      for (let col = 0; col < 9; col++) {
+        const index = layer * 270 + row * 9 + col;
+        const z = 32 + row * 30 + random(index + 131) * 10;
+        const x = (col - 4) * 8 + (random(index + 213) - .5) * 4;
+        const bandHeight = Math.abs(col - 4) > 2 ? 42 : 21;
+        const y = 2 + z * .077 - z * z * .00016 + (layer + random(index + 317) - .5) * bandHeight;
+        worlds.push({ index, position: { x, y, z }, radius: 2.5 + random(index + 9) * 1.6, destroyed: false });
+      }
     }
   }
   return worlds;

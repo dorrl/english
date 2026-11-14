@@ -6,6 +6,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Arena, colors, hex } from './arena';
 import type { Planet } from './arena';
 import { Effects, Sound } from './effects';
+import { impactFeedback } from './presentation';
+import { RankingMotion } from './ranking';
 import { STEP, FINISH_DISTANCE, compareFlights, contactTime, createFlight, launchFlight, parseNames, stepFlights } from './simulation';
 import type { Flight } from './simulation';
 import './style.css';
@@ -17,6 +19,7 @@ const viewport = $('viewport'), namesInput = $<HTMLTextAreaElement>('names');
 const startButton = $<HTMLButtonElement>('start-race'), resetButton = $<HTMLButtonElement>('reset-race');
 const sound = new Sound();
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const rankingMotion = new RankingMotion($<HTMLOListElement>('leaderboard'), reducedMotion);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050b17);
 scene.fog = new THREE.FogExp2(0x080f20, .00135);
@@ -27,26 +30,14 @@ const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4(), cullS
 let renderer: THREE.WebGLRenderer, composer: EffectComposer, arena: Arena, effects: Effects;
 let phase: Phase = 'idle', phaseTime = 0, showTime = 0, elapsed = 0, accumulator = 0;
 let ready = false, struck = false, totalDestroyed = 0, hitStop = 0, slowMotion = 0, shake = 0, flash = 0, impactCooldown = 0;
-let cueLife = 0, impactLife = 0, uiClock = 0, cullClock = 0, lastTick = -1, lastLeader = -1, leaderHold = 0;
+let uiClock = 0, cullClock = 0, lastTick = -1;
 let focus: Racer | null = null, impactFocus = new THREE.Vector3(), impactFocusLife = 0;
 let chargeParticles = 0;
 const racers: Racer[] = [];
 const clock = new THREE.Clock();
 
-function status(text: string) { $('status-label').textContent = text; }
 function setPhase(next: Phase) {
   phase = next; phaseTime = 0; document.body.dataset.phase = next;
-  $('event-label').textContent = ({ idle: 'STANDBY', countdown: 'GET READY', windup: 'CHARGING', swing: 'FULL SWING', followthrough: 'LIFT OFF', flight: 'IN FLIGHT', settle: 'FINAL RESULTS', results: 'COMPLETE' })[next];
-}
-function cue(kicker: string, title: string, detail = '', duration = 1.1) {
-  $('cue-kicker').textContent = kicker; $('cue-title').textContent = title; $('cue-detail').textContent = detail;
-  $('scene-cue').classList.remove('hidden'); cueLife = duration;
-}
-function feed(title: string, detail: string, color = '#73d9ef') {
-  const item = document.createElement('div'), label = document.createElement('b'), body = document.createElement('span');
-  item.className = 'feed-item'; label.textContent = title; label.style.color = color; body.textContent = detail;
-  item.append(label, body); $('event-feed').prepend(item);
-  while ($('event-feed').children.length > 5) $('event-feed').lastElementChild?.remove();
 }
 function makeTag(name: string, color: number) {
   const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 112;
@@ -62,6 +53,7 @@ function makeTag(name: string, color: number) {
   tag.scale.set(3.9, .85, 1); tag.renderOrder = 8; return tag;
 }
 function clearRacers() {
+  rankingMotion.clear();
   for (const racer of racers) {
     scene.remove(racer.mesh, racer.tag, racer.trail);
     // Arena geometries are shared; only racer-owned materials/textures are released.
@@ -96,7 +88,7 @@ function updateCount() {
   const rawCount = namesInput.value.split(/\r?\n/).filter(name => name.trim()).length, count = Math.min(30, rawCount);
   $('name-count').textContent = `${count.toString().padStart(2, '0')} / 30`;
   startButton.disabled = !ready || count < 2 || phase !== 'idle';
-  $('validation').textContent = rawCount > 30 ? '앞의 30명으로 진행합니다.' : count < 2 ? '이름을 한 줄에 한 명씩, 2–30명 입력하세요.' : `${count}명 탑승 준비 완료 · 시작하면 자동으로 진행됩니다.`;
+  $('validation').textContent = rawCount > 30 ? '앞의 30명으로 진행합니다.' : count < 2 ? '한 줄에 한 명씩, 2–30명' : '';
   $('validation').className = count >= 2 ? 'validation good' : 'validation';
   if (ready && phase === 'idle') createRoster();
 }
@@ -110,22 +102,13 @@ function updateLeaderboard() {
     racer.row.classList.toggle('is-focus', racer === focus);
     racer.row.classList.toggle('is-done', racer.done);
     racer.row.title = `${racer.name} · ${racer.planets}개 파괴 · ${Math.round(racer.distance)} m`;
-    if ($('leaderboard').children[index] !== racer.row) $('leaderboard').insertBefore(racer.row, $('leaderboard').children[index] || null);
   });
+  rankingMotion.reorder(sorted.map(racer => racer.row), struck && phase !== 'results');
   $('roster-total').textContent = String(racers.length).padStart(2, '0');
   $('finished-count').textContent = `${racers.filter(racer => racer.done).length} / ${racers.length}`;
   $('remaining-count').textContent = String(totalDestroyed).padStart(2, '0');
-  if (sorted.length && struck) {
-    const leader = sorted[0];
-    $('leader-name').textContent = leader.name; $('leader-score').textContent = `${leader.planets} ✦`;
-    if (lastLeader !== -1 && lastLeader !== leader.index && leaderHold <= 0 && phase === 'flight') {
-      feed('LEAD CHANGE', `${leader.name} · ${leader.planets}개 파괴`, hex(leader.color));
-      cue('순위 역전', 'NEW LEADER', leader.name, 1); leaderHold = 2.5;
-    }
-    lastLeader = leader.index;
-  }
   if (!racers.length && !$('leaderboard').children.length) {
-    const empty = document.createElement('li'); empty.className = 'empty-row'; empty.textContent = '탑승할 학생들을 기다리고 있어요.'; $('leaderboard').append(empty);
+    const empty = document.createElement('li'); empty.className = 'empty-row'; empty.textContent = '—'; $('leaderboard').append(empty);
   }
 }
 function strike() {
@@ -137,23 +120,23 @@ function strike() {
     racer.trail.geometry.getAttribute('position').needsUpdate = true; racer.trail.visible = true;
   }
   effects.burst({ x: 5.5, y: 1.1, z: 0 }, 0xffce88, 2.6, true);
-  $('charge-value').textContent = '100'; $('charge-fill').style.transform = 'scaleX(1)';
-  cue('PERFECT CONTACT', 'BIG BANG!', `${racers.length}개의 궤적, 단 한 번의 스윙.`, 1.05);
-  status('ALL BALLS AIRBORNE'); feed('BIG BANG', `${racers.length}명, 은하를 향해 출발!`, '#ffcf86');
+  $('charge-fill').style.transform = 'scaleX(1)';
 }
-function smashPlanet(planet: Planet, racer: Racer) {
+function smashPlanet(planet: Planet) {
+  // Test the actual camera frustum, not the visibility flag (which is cached
+  // by culling, and becomes false as soon as a planet is destroyed).
+  camera.updateMatrixWorld();
+  viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  frustum.setFromProjectionMatrix(viewProjection);
+  cullSphere.center.copy(planet.position); cullSphere.radius = planet.radius;
+  const onScreen = frustum.intersectsSphere(cullSphere);
+  const feedback = impactFeedback(onScreen, reducedMotion);
   planet.mesh.visible = false; totalDestroyed++;
-  effects.burst(planet.position, planet.color, planet.radius); sound.impact();
-  if (impactCooldown <= 0) { hitStop = .052; slowMotion = .16; impactCooldown = .22; }
-  shake = Math.max(shake, reducedMotion ? .1 : .6); flash = Math.max(flash, .32);
+  effects.burst(planet.position, planet.color, planet.radius); sound.impact(false, feedback.volume);
+  if (onScreen && impactCooldown <= 0) { hitStop = feedback.hitStop; slowMotion = feedback.slowMotion; impactCooldown = .22; }
+  shake = Math.max(shake, feedback.shake); flash = Math.max(flash, feedback.flash);
   const worldPosition = new THREE.Vector3().copy(planet.position);
-  if (camera.position.distanceTo(worldPosition) < 130) { impactFocus.copy(worldPosition); impactFocusLife = .65; }
-  $('impact-name').textContent = racer.name; $('impact-score').textContent = `${racer.planets} ✦`;
-  $('impact-world').textContent = `${planet.label} DESTROYED`;
-  $('impact-callout').style.setProperty('--impact-color', hex(racer.color));
-  $('impact-callout').classList.remove('hidden'); impactLife = 1.1;
-  // A single screen callout replaces overlapping score popups in busy 30-player rounds.
-  feed(`PLANET BREAK +${racer.planets}`, `${racer.name} · ${planet.label}`, hex(racer.color));
+  if (onScreen && camera.position.distanceTo(worldPosition) < 130) { impactFocus.copy(worldPosition); impactFocusLife = .65; }
 }
 function updatePhase(dt: number) {
   if (phase === 'idle' || phase === 'results') return;
@@ -164,13 +147,13 @@ function updatePhase(dt: number) {
       lastTick = tick; sound.tick(tick === 2); $('countdown').textContent = String(3 - tick);
       $('countdown').classList.remove('count-pop'); void $('countdown').offsetWidth; $('countdown').classList.add('count-pop');
     }
-    if (phaseTime >= 2.16) { $('countdown').classList.add('hidden'); setPhase('windup'); sound.charge(); cue('REACTOR ONLINE', 'CHARGE UP', '모든 에너지가 한 점으로.', 1.35); status('BAT CHARGING'); }
+    if (phaseTime >= 2.16) { $('countdown').classList.add('hidden'); setPhase('windup'); sound.charge(); }
   } else if (phase === 'windup') {
     const t = Math.min(1, phaseTime / 1.35), ease = t * t * (3 - 2 * t);
     arena.bat.position.set(-1 - .35 * ease, 1 + .1 * ease, -1.15);
     arena.bat.rotation.set(.16 * ease, -.3 * ease, -.3 - .52 * ease + Math.sin(phaseTime * 45) * .012 * t);
     arena.batPower.emissiveIntensity = 1.5 + t * 3;
-    $('charge-value').textContent = String(Math.round(t * 100)).padStart(2, '0'); $('charge-fill').style.transform = `scaleX(${t})`;
+    $('charge-fill').style.transform = `scaleX(${t})`;
     chargeParticles += dt;
     if (chargeParticles > .025) { chargeParticles = 0; effects.charge({ x: 5.5, y: 1.2, z: -.5 }, t, showTime); }
     if (phaseTime >= 1.35) setPhase('swing');
@@ -182,7 +165,7 @@ function updatePhase(dt: number) {
     if (t >= 1) setPhase('followthrough');
   } else if (phase === 'followthrough') {
     arena.bat.rotation.z = 1.066 + .3 * (1 - Math.exp(-phaseTime * 6));
-    if (phaseTime >= .7) { setPhase('flight'); status('PLANET BREAKERS IN FLIGHT'); }
+    if (phaseTime >= .7) setPhase('flight');
   } else if (phase === 'settle') {
     if (phaseTime >= 1.7) showWinner();
   }
@@ -195,8 +178,7 @@ function updateFlight(dt: number) {
     if (hitStop > 0) { accumulator = 0; break; }
   }
   if (racers.length && racers.every(racer => racer.done)) {
-    updateLeaderboard(); setPhase('settle'); status('CALCULATING FINAL RANK');
-    cue('ALL FLIGHTS COMPLETE', 'WHO IS THE CHAMPION?', '마지막 궤적까지, 순위 확정 중.', 1.7);
+    updateLeaderboard(); setPhase('settle');
   }
 }
 function drawRacers(dt: number) {
@@ -242,9 +224,7 @@ function updateCamera(dt: number) {
     fov = 58 + Math.min(8, front.velocity.z / 22);
     $('focus-name').textContent = front.name; $('focus-distance').textContent = `${Math.round(front.distance)} m`;
     $('focus-color').style.background = hex(front.color);
-    $('speed-value').textContent = String(Math.round(Math.hypot(front.velocity.x, front.velocity.y, front.velocity.z)));
     $('flight-fill').style.transform = `scaleX(${Math.min(1, z / FINISH_DISTANCE)})`;
-    $('sector-label').textContent = `SECTOR ${String(1 + Math.floor(z / 150)).padStart(2, '0')}`;
   } else if (!struck) {
     const windup = phase === 'windup' ? Math.min(1, phaseTime / 1.35) : phase === 'swing' ? 1 : 0;
     desiredPosition.set(16 - windup * 5, 11 - windup * 4, (narrow ? -43 : -30) + windup * 5);
@@ -279,15 +259,13 @@ function updateTarget(racer: Racer | null) {
   camera.updateMatrixWorld(); projection.copy(closest.position).project(camera);
   if (Math.abs(projection.x) > .83 || Math.abs(projection.y) > .65 || projection.z > 1) { reticle.classList.add('hidden'); return; }
   reticle.style.left = `${(projection.x * .5 + .5) * 100}%`; reticle.style.top = `${(-projection.y * .5 + .5) * 100}%`;
-  $('target-name').textContent = closest.label; reticle.classList.remove('hidden');
+  reticle.classList.remove('hidden');
 }
 function updatePresentation(dt: number) {
-  showTime += dt; impactCooldown = Math.max(0, impactCooldown - dt); leaderHold = Math.max(0, leaderHold - dt);
+  showTime += dt; impactCooldown = Math.max(0, impactCooldown - dt);
   impactFocusLife = Math.max(0, impactFocusLife - dt); shake *= Math.exp(-dt * 13); flash *= Math.exp(-dt * 19);
   $('impact-flash').style.opacity = String(reducedMotion ? flash * .18 : flash);
   $('speed-lines').style.opacity = struck && !['settle', 'results'].includes(phase) && !reducedMotion ? String(Math.min(.55, .13 + slowMotion * .5)) : '0';
-  if (cueLife > 0) { cueLife -= dt; if (cueLife <= 0) $('scene-cue').classList.add('hidden'); }
-  if (impactLife > 0) { impactLife -= dt; if (impactLife <= 0) $('impact-callout').classList.add('hidden'); }
   effects.update(dt);
   for (let i = 0; i < arena.deckRings.length; i++) {
     const ring = arena.deckRings[i]; ring.rotation.z += dt * .1 * (i % 2 ? 1 : -1);
@@ -303,30 +281,32 @@ function updatePresentation(dt: number) {
 function showWinner() {
   setPhase('results'); sound.winner(); updateLeaderboard();
   const sorted = [...racers].sort(compareFlights), winner = sorted[0];
-  $('scene-cue').classList.add('hidden'); $('impact-callout').classList.add('hidden');
   $('winner-name').textContent = winner.name; $('winner-planets').textContent = String(winner.planets);
-  $('winner-distance').textContent = `${Math.round(winner.distance)} m`; $('winner-roster').textContent = String(racers.length);
+  $('winner-distance').textContent = Math.round(winner.distance).toLocaleString();
+  $('winner-banner').style.setProperty('--winner-color', hex(winner.color));
   $('winner-podium').replaceChildren();
   sorted.slice(0, 3).forEach((racer, i) => {
-    const row = document.createElement('li'), rank = document.createElement('span'), name = document.createElement('span'), score = document.createElement('b');
-    rank.textContent = `0${i + 1}`; name.textContent = racer.name; score.textContent = `${racer.planets} ✦ · ${Math.round(racer.distance)} m`;
+    const row = document.createElement('li'), rank = document.createElement('span'), name = document.createElement('span'), score = document.createElement('span');
+    const planets = document.createElement('b'), distance = document.createElement('small');
+    rank.className = 'podium-rank'; name.className = 'podium-name'; score.className = 'podium-score';
+    rank.textContent = String(i + 1); name.textContent = racer.name; planets.textContent = `${racer.planets} ✦`; distance.textContent = `${Math.round(racer.distance).toLocaleString()} m`;
+    score.append(planets, distance); row.style.setProperty('--podium-delay', `${i * 75 + 170}ms`);
     row.append(rank, name, score); $('winner-podium').append(row);
   });
-  $('winner-banner').classList.remove('hidden'); status('GALACTIC CHAMPION');
-  feed('CHAMPION', `${winner.name} · ${winner.planets}개 파괴`, '#ffd48b');
+  $('winner-banner').classList.remove('hidden');
   projection.copy(cameraTarget); effects.burst(projection, winner.color, 3, true);
   $('winner-replay').focus({ preventScroll: true });
 }
 function clearRound() {
   sound.stop(); effects.clear(); arena.resetWorlds();
   phaseTime = showTime = elapsed = accumulator = 0; struck = false; totalDestroyed = hitStop = slowMotion = shake = flash = 0;
-  impactCooldown = cueLife = impactLife = uiClock = cullClock = impactFocusLife = leaderHold = chargeParticles = 0;
-  lastTick = lastLeader = -1;
-  $('countdown').classList.add('hidden'); $('scene-cue').classList.add('hidden'); $('impact-callout').classList.add('hidden'); $('winner-banner').classList.add('hidden'); $('target-reticle').classList.add('hidden');
-  $('event-feed').replaceChildren(); $('race-time').textContent = '00:00.0'; $('remaining-count').textContent = '00';
-  $('charge-value').textContent = '00'; $('charge-fill').style.transform = 'scaleX(0)'; $('flight-fill').style.transform = 'scaleX(0)';
-  $('focus-name').textContent = '발사 대기'; $('focus-distance').textContent = '0 m'; $('leader-name').textContent = '—'; $('leader-score').textContent = '0 ✦';
-  $('speed-value').textContent = '0'; $('sector-label').textContent = 'SECTOR 01'; $('impact-flash').style.opacity = '0'; $('speed-lines').style.opacity = '0';
+  impactCooldown = uiClock = cullClock = impactFocusLife = chargeParticles = 0;
+  lastTick = -1;
+  $('countdown').classList.add('hidden'); $('winner-banner').classList.add('hidden'); $('target-reticle').classList.add('hidden');
+  $('race-time').textContent = '00:00.0'; $('remaining-count').textContent = '00';
+  $('charge-fill').style.transform = 'scaleX(0)'; $('flight-fill').style.transform = 'scaleX(0)';
+  $('focus-name').textContent = ''; $('focus-distance').textContent = '0 m';
+  $('impact-flash').style.opacity = '0'; $('speed-lines').style.opacity = '0';
   arena.bat.position.set(-1, 1, -1.15); arena.bat.rotation.set(0, 0, -.3); arena.batPower.emissiveIntensity = 1.5;
   cameraPosition.set(16, 11, viewport.clientWidth < 600 ? -43 : -30); cameraTarget.set(3, 1, 6); camera.fov = 54;
 }
@@ -335,12 +315,12 @@ function startGame() {
   sound.open(); clearRound(); createRoster(); namesInput.disabled = true;
   document.body.classList.add('race-mode'); setPhase('countdown');
   startButton.disabled = true; resetButton.disabled = false; $('countdown').classList.remove('hidden');
-  status('LAUNCH SEQUENCE'); feed('LAUNCH SEQUENCE', `${racers.length}명의 도전자, 준비 완료.`); resize();
+  resize();
 }
 function resetGame() {
   if (!ready) return;
   clearRound(); setPhase('idle'); namesInput.disabled = false; document.body.classList.remove('race-mode');
-  resetButton.disabled = true; updateCount(); status('SYSTEM READY'); resize(); namesInput.focus({ preventScroll: true });
+  resetButton.disabled = true; updateCount(); resize(); namesInput.focus({ preventScroll: true });
 }
 function resize() {
   if (!renderer) return;
@@ -389,10 +369,10 @@ function boot() {
   });
   window.addEventListener('resize', resize); new ResizeObserver(resize).observe(viewport);
   document.addEventListener('visibilitychange', () => { if (document.hidden) sound.stop(); clock.getDelta(); });
-  ready = true; setPhase('idle'); updateCount(); resize(); status('SYSTEM READY'); requestAnimationFrame(animate);
+  ready = true; setPhase('idle'); updateCount(); resize(); requestAnimationFrame(animate);
 }
 try { boot(); } catch (error) {
-  console.error('Cosmic Slugger initialization failed', error); status('3D ENGINE UNAVAILABLE');
+  console.error('Cosmic Slugger initialization failed', error);
   $('validation').textContent = '3D 화면을 시작하지 못했어요. 브라우저의 하드웨어 가속을 확인한 뒤 새로고침해 주세요.';
   $('validation').className = 'validation error';
 }

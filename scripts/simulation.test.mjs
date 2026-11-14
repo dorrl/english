@@ -7,6 +7,37 @@ const source = await readFile(new URL('../src/simulation.ts', import.meta.url), 
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const sim = await import('data:text/javascript;base64,' + Buffer.from(compiled).toString('base64'));
 const { STEP, compareFlights, contactTime, createFlight, createWorldLayout, launchFlight, parseNames, stepFlights } = sim;
+const presentationSource = await readFile(new URL('../src/presentation.ts', import.meta.url), 'utf8');
+const presentationCode = ts.transpileModule(presentationSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
+const { impactFeedback } = await import('data:text/javascript;base64,' + Buffer.from(presentationCode).toString('base64'));
+
+test('upper planet bands extend the field without thinning any original column', () => {
+  const worlds = createWorldLayout();
+  assert.equal(worlds.length, 810);
+  const cells = new Map();
+  for (const world of worlds) {
+    const layer = Math.floor(world.index / 270), localIndex = world.index % 270;
+    const column = localIndex % 9, row = Math.floor(localIndex / 9);
+    const bandHeight = Math.abs(column - 4) > 2 ? 42 : 21;
+    const { x, y, z } = world.position;
+    const altitude = (y - (2 + z * .077 - z * z * .00016)) / bandHeight;
+    assert.ok(altitude >= layer - .5 && altitude < layer + .5);
+    assert.ok(z >= 32 + row * 30 && z < 42 + row * 30);
+    assert.ok(Math.abs(x - (column - 4) * 8) <= 2);
+    const key = `${row}/${column}`;
+    cells.set(key, (cells.get(key) || 0) + 1);
+  }
+  assert.equal(cells.size, 270);
+  assert.ok([...cells.values()].every(count => count === 3));
+});
+test('off-screen collisions retain only a quiet tremor without flash or hit-stop', () => {
+  for (const reduced of [false, true]) {
+    const visible = impactFeedback(true, reduced), outside = impactFeedback(false, reduced);
+    assert.ok(outside.shake > 0 && outside.shake < visible.shake * .15);
+    assert.equal(outside.flash, 0); assert.equal(outside.hitStop, 0); assert.equal(outside.slowMotion, 0);
+    assert.ok(outside.volume < visible.volume * .2);
+  }
+});
 
 test('roster trims blanks, preserves literal names, and caps at thirty', () => {
   assert.deepEqual(parseNames('  민수 \r\n\r\n 지우 \n <b>우주</b> '), ['민수', '지우', '<b>우주</b>']);

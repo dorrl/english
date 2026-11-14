@@ -4,71 +4,61 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#060c16" />
-    <meta name="description" content="단 한 번의 스윙, 우리 반의 우주 대결. Cosmic Slugger." />
-    <title>COSMIC SLUGGER — One swing. Infinite impact.</title>
+    <meta name="description" content="우리 반의 우주 대결, Cosmic Slugger." />
+    <title>COSMIC SLUGGER</title>
   </head>
   <body data-phase="idle">
     <div id="app">
       <header class="topbar">
-        <a class="brand" href="./" aria-label="Cosmic Slugger 홈"><span class="brand-mark">✳</span><span>COSMIC <b>SLUGGER</b><small>CLASSROOM ARCADE / VOL. 01</small></span></a>
-        <div class="top-status"><span class="live-dot"></span><span id="status-label">INITIALIZING</span></div>
-        <span class="edition-label">ONE SWING. INFINITE IMPACT. <i>↗</i></span>
+        <a class="brand" href="./" aria-label="Cosmic Slugger 홈"><span class="brand-mark" aria-hidden="true">✳</span><span>COSMIC <b>SLUGGER</b></span></a>
       </header>
       <main class="layout">
         <section class="stage-panel" aria-label="우주 경기장">
-          <div class="stage-heading"><div><span class="eyebrow">THE GALAXY IS YOUR BALLPARK</span><h1>한 방으로, <em>은하 끝까지.</em></h1></div><span class="stage-tag"><i></i> LIVE ARENA <b>01</b></span></div>
           <div class="viewport-wrap">
             <div id="viewport" role="img" aria-label="우주 배트와 학생들의 공, 파괴 가능한 행성으로 구성된 3D 경기장"></div>
             <div class="viewport-vignette"></div>
             <div class="frame-corner top-left"></div><div class="frame-corner bottom-right"></div>
             <div class="race-hud">
-              <div class="hud-chip"><span class="hud-label">FLIGHT TIME</span><strong id="race-time">00:00.0</strong></div>
-              <div class="hud-chip"><span class="hud-label">PLANETS BROKEN</span><strong id="remaining-count">00</strong></div>
-              <div class="hud-chip hud-status"><span class="hud-label">MISSION STATUS</span><strong id="event-label">STANDBY</strong></div>
+              <div class="hud-chip"><span class="hud-label">시간</span><strong id="race-time">00:00.0</strong></div>
+              <div class="hud-chip"><span class="hud-label">행성 파괴</span><strong id="remaining-count">00</strong></div>
             </div>
-            <div class="arena-id"><span id="sector-label">SECTOR 01</span><i>✦</i> DEEP SPACE</div>
-            <div class="arena-intro"><span class="intro-kicker">READY TO MAKE AN IMPACT?</span><p>ONE SWING.<br><em>BIG BANG.</em></p><span class="intro-caption">이름을 넣고, 우리 반의 우주를 깨워보세요.</span></div>
             <div id="speed-lines" class="speed-lines"></div>
             <div id="impact-flash" class="impact-flash"></div>
-            <div id="target-reticle" class="target-reticle hidden" aria-hidden="true"><i></i><span>INCOMING</span><small id="target-name"></small></div>
+            <div id="target-reticle" class="target-reticle hidden" aria-hidden="true"><i></i></div>
             <div id="countdown" class="countdown hidden" aria-hidden="true">3</div>
-            <div id="scene-cue" class="scene-cue hidden"><small id="cue-kicker"></small><strong id="cue-title"></strong><span id="cue-detail"></span></div>
-            <div id="impact-callout" class="impact-callout hidden"><span>PLANET BREAK</span><div><b id="impact-name"></b><strong id="impact-score">1 ✦</strong></div><small id="impact-world"></small></div>
-            <div class="flight-telemetry"><div class="tracking-label"><i id="focus-color"></i><span>TRACKING</span></div><strong id="focus-name">발사 대기</strong><div class="tracking-stats"><span id="focus-distance">0 m</span><span><b id="speed-value">0</b> m/s</span></div></div>
-            <div class="power-meter"><div><span>BAT REACTOR</span><b><span id="charge-value">00</span><small>%</small></b></div><div class="power-track"><i id="charge-fill"></i></div><span class="power-caption">HIGH ENERGY · HANDLE WITH AWE</span></div>
-            <div class="flight-progress"><span>LAUNCH</span><div><i id="flight-fill"></i></div><span>DEEP SPACE ↗</span></div>
+            <div class="flight-telemetry"><i id="focus-color"></i><strong id="focus-name"></strong><span id="focus-distance">0 m</span></div>
+            <div class="power-meter" role="img" aria-label="배트 충전"><div class="power-track"><i id="charge-fill"></i></div></div>
+            <div class="flight-progress" role="img" aria-label="비행 진행률"><i id="flight-fill"></i></div>
             <div id="winner-banner" class="winner-banner hidden" role="dialog" aria-modal="true" aria-labelledby="winner-name" aria-describedby="winner-rule">
-              <div class="winner-orbit">✦</div><span class="winner-kicker">THE GALAXY HAS A NEW CHAMPION</span><strong id="winner-name">—</strong>
-              <p id="winner-rule">행성 파괴 수 우선 · 동점이면 비행 거리</p>
-              <div class="winner-stats"><div><b id="winner-planets">0</b><span>행성 파괴</span></div><div><b id="winner-distance">0 m</b><span>비행 거리</span></div><div><b id="winner-roster">0</b><span>도전자</span></div></div>
-              <ol id="winner-podium" class="winner-podium"></ol>
-              <button id="winner-replay" class="primary-button" type="button"><span>한 번 더, 빅뱅!</span><b>↗</b></button><button id="winner-close" class="result-reset" type="button">명단 수정하기</button>
+              <article class="result-card">
+                <div class="result-hero">
+                  <div class="winner-emblem" aria-hidden="true"><svg viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="29"/><circle cx="32" cy="32" r="24"/><path d="m17 24 8 7 7-12 7 12 8-7-4 20H21l-4-20Z"/><path d="M23 49h18"/></svg></div>
+                  <span class="winner-label">우승</span><h2 id="winner-name">—</h2>
+                </div>
+                <div class="winner-stats"><div><b id="winner-planets">0</b><span>행성 파괴</span></div><div><b id="winner-distance">0</b><span>비행 거리 · m</span></div></div>
+                <ol id="winner-podium" class="winner-podium" aria-label="최종 상위 3명"></ol>
+                <p id="winner-rule">행성 파괴 수 → 비행 거리</p>
+                <div class="result-actions"><button id="winner-replay" class="primary-button" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 15 10l-8 5.5Z"/></svg>다시 시작</button><button id="winner-close" class="result-reset" type="button">명단 수정</button></div>
+              </article>
             </div>
           </div>
-          <div class="stage-footer"><span><i></i> AUTO FLIGHT · JUST WATCH THE SHOW</span><span>01 / CHARGE <b>→</b> 02 / SMASH <b>→</b> 03 / CONQUER</span></div>
         </section>
         <aside class="control-panel" aria-label="경기 준비와 실시간 순위">
           <div class="roster-setup">
-            <div class="panel-title"><div><p class="eyebrow">MISSION CONTROL</p><h2>오늘의 도전자</h2></div><span class="panel-icon">↗</span></div>
-            <label class="field-label" for="names">탑승 명단 <span id="name-count">00 / 30</span></label>
-            <textarea id="names" spellcheck="false" placeholder="한 줄에 한 명씩 입력하세요.&#10;&#10;민수&#10;지우&#10;서연" aria-describedby="validation"></textarea>
-            <div class="launch-info"><span class="launch-icon">✦</span><div><strong>하나의 공. 한 번의 기회.</strong><small>행성을 많이 부술수록 높은 순위!</small></div></div>
-            <button id="start-race" class="primary-button" type="button" disabled><span>우주를 향해, 스윙!</span><b>↗</b></button>
-            <div id="validation" class="validation" aria-live="polite">이름을 한 줄에 한 명씩, 2–30명 입력하세요.</div>
+            <label class="field-label" for="names">참가자 <span id="name-count">00 / 30</span></label>
+            <textarea id="names" spellcheck="false" placeholder="민수&#10;지우&#10;서연" aria-describedby="validation"></textarea>
+            <div id="validation" class="validation" aria-live="polite">한 줄에 한 명씩, 2–30명</div>
+            <button id="start-race" class="primary-button" type="button" disabled>시작 <span aria-hidden="true">↗</span></button>
           </div>
           <div class="scoreboard-panel">
-            <div class="panel-title compact"><div><p class="eyebrow">GALACTIC RANKING</p><h2>실시간 순위 <span id="roster-total">00</span></h2></div><span class="live-pill"><i></i> LIVE</span></div>
-            <div class="leader-strip"><span>현재 선두</span><strong id="leader-name">—</strong><b id="leader-score">0 ✦</b></div>
-            <div class="scoreboard-columns"><span>RANK / PILOT</span><span>PLANETS</span></div>
-            <ol id="leaderboard" class="leaderboard" aria-label="행성 파괴 수와 비행 거리순 순위"><li class="empty-row">탑승할 학생들을 기다리고 있어요.</li></ol>
-            <div class="ranking-note"><span>행성 파괴 수 → 비행 거리</span><span>완주 <b id="finished-count">0 / 0</b></span></div>
+            <div class="panel-title"><h2>순위</h2><span id="roster-total">00</span></div>
+            <div class="scoreboard-columns"><span>이름</span><span>파괴 · 거리</span></div>
+            <ol id="leaderboard" class="leaderboard" aria-label="행성 파괴 수와 비행 거리순 순위"><li class="empty-row">—</li></ol>
+            <div class="ranking-note"><span>파괴 수 → 거리</span><span>완주 <b id="finished-count">0 / 0</b></span></div>
           </div>
-          <div class="event-panel"><p class="eyebrow">IMPACT LOG</p><div id="event-feed"></div></div>
-          <button id="reset-race" class="secondary-button" type="button" disabled>↶ &nbsp; 처음으로</button>
-          <div class="panel-bottom"><i></i><span>AUTOMATIC SHOW</span><span>2–30 PLAYERS</span></div>
+          <button id="reset-race" class="secondary-button" type="button" disabled>처음으로</button>
         </aside>
       </main>
-      <footer class="footer"><span>✳ COSMIC SLUGGER <i> / CLASSROOM EDITION</i></span><span>SMALL BALL. COSMIC CONSEQUENCES.</span></footer>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

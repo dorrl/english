@@ -101,6 +101,7 @@ export class Sound {
   private nodes = new Set<AudioScheduledSourceNode>();
   private chargeOscillator: OscillatorNode | null = null;
   private lastImpact = -1;
+  private lastImpactVolume = 0;
   open() {
     try {
       if (!this.context) {
@@ -133,17 +134,17 @@ export class Sound {
     gain.gain.setValueAtTime(.0001, t); gain.gain.linearRampToValueAtTime(.045, t + 1.1); gain.gain.linearRampToValueAtTime(0, t + 1.4);
     oscillator.connect(gain).connect(this.master); this.track(oscillator, [gain]); this.chargeOscillator = oscillator; oscillator.start(t); oscillator.stop(t + 1.42);
   }
-  impact(bat = false) {
+  impact(bat = false, volume = 1) {
     if (!this.context || !this.master || !this.noise) return;
     const ctx = this.context, t = ctx.currentTime;
-    if (!bat && t - this.lastImpact < .085) return;
-    this.lastImpact = t;
+    if (!bat && t - this.lastImpact < .085 && volume <= this.lastImpactVolume) return;
+    this.lastImpact = t; this.lastImpactVolume = volume;
     if (bat && this.chargeOscillator) { try { this.chargeOscillator.stop(); } catch {} this.chargeOscillator = null; }
-    this.tone(bat ? 125 : 85, 24, .55, bat ? .7 : .43);
-    this.tone(bat ? 860 : 540, 52, .19, .16, 'triangle');
+    this.tone(bat ? 125 : 85, 24, .55, (bat ? .7 : .43) * volume);
+    this.tone(bat ? 860 : 540, 52, .19, .16 * volume, 'triangle');
     const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain(); source.buffer = this.noise;
     filter.type = 'lowpass'; filter.frequency.setValueAtTime(bat ? 6500 : 3200, t); filter.frequency.exponentialRampToValueAtTime(120, t + .45);
-    gain.gain.setValueAtTime(bat ? .65 : .3, t); gain.gain.exponentialRampToValueAtTime(.0001, t + .5);
+    gain.gain.setValueAtTime((bat ? .65 : .3) * volume, t); gain.gain.exponentialRampToValueAtTime(.0001, t + .5);
     source.connect(filter).connect(gain).connect(this.master); this.track(source, [filter, gain]); source.start(t);
   }
   winner() { [261.63, 329.63, 392, 523.25].forEach((frequency, i) => this.tone(frequency, frequency, .7, .13, 'triangle', i * .14)); }

@@ -17,7 +17,9 @@ Vite serves the game at `/english/`. `npm run preview` previews the production b
 
 - A three-beat countdown leads into a rising reactor charge and accelerated bat swing.
 - Contact triggers a short hit-stop, synthesized bass/crack, camera recoil, a glowing core, debris, and shock rings.
-- Automatic flight framing, speed-dependent field of view, colored trails, readable focus labels, and live lead changes keep the race visible.
+- Automatic flight framing, speed-dependent field of view, colored trails, readable focus labels, and smoothly animated ranking changes keep the race visible. Announcements and decorative text are omitted.
+- Off-screen planet impacts produce a quiet tremor and softer sound, without global flash, hit-stop, or camera redirection. Visible impacts retain full feedback.
+- The original lower planet field is preserved, with two additional vertical bands above it at the same density per column.
 - Planet destruction uses pooled effects (600 fragments, 24 rings, 8 cores) and shared planet textures/materials. Off-screen worlds are culled.
 - After all flights finish, a brief suspense beat leads to the winner and top three. Replay preserves the roster; reset returns to name editing, including during countdown or charging.
 - Reduced-motion preferences soften flashes and camera shake and disable speed lines.
@@ -28,8 +30,10 @@ Vite serves the game at `/english/`. `npm run preview` previews the production b
 - `src/arena.ts`: generated galaxy, shared surfaces, launch platform, bat, and balls.
 - `src/effects.ts`: bounded reusable effects and synthesized audio.
 - `src/simulation.ts`: deterministic 120 Hz ballistic flight, swept collision detection, and ranking. Presentation time does not change scores.
+- `src/presentation.ts`: on-screen/off-screen impact feedback strengths.
+- `src/ranking.ts`: continuous ranking animation, including updates received during a move.
 - `src/style.css`: responsive arena and scoreboard, with a separate bottom scoreboard on small screens.
-- `scripts/simulation.test.mjs`: input limits, one launch per student, collision tunneling, contested planets, ranking, and full 2/30-student rounds at different frame rates and with pauses.
+- `scripts/simulation.test.mjs`: vertical planet density, off-screen feedback, input limits, one launch per student, collision tunneling, contested planets, ranking, and full 2/30-student rounds at different frame rates and with pauses.
 
 Every planet awards credit once, to the earliest contact. Names are trimmed, blank lines ignored, and the first thirty used. Student names are rendered as literal text.
 
