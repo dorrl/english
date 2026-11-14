@@ -1,75 +1,398 @@
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import "./style.css";
+import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { Arena, colors, hex } from './arena';
+import type { Planet } from './arena';
+import { Effects, Sound } from './effects';
+import { STEP, FINISH_DISTANCE, compareFlights, contactTime, createFlight, launchFlight, parseNames, stepFlights } from './simulation';
+import type { Flight } from './simulation';
+import './style.css';
 
-type Racer = { name:string; color:number; mesh:THREE.Mesh; nameTag:THREE.Sprite; trail:THREE.Points; trailPositions:Float32Array; trailIndex:number; velocity:THREE.Vector3; position:THREE.Vector3; launched:boolean; done:boolean; launchAt:number; planets:number; distance:number; flightTime:number; maxZ:number };
-type Planet = { mesh:THREE.Group; core:THREE.Mesh; position:THREE.Vector3; radius:number; destroyed:boolean; label:string; baseY:number; phase:number; drift:number; spinX:number; spinY:number; spinZ:number; ring:THREE.Mesh|null; ringSpin:number };
-type Particle = { mesh:THREE.Mesh; velocity:THREE.Vector3; life:number; maxLife:number; spin:THREE.Vector3; material:THREE.MeshBasicMaterial };
-const $ = <T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
-const viewport=$("viewport"), namesInput=$("names") as HTMLTextAreaElement, startButton=$("start-race") as HTMLButtonElement, resetButton=$("reset-race") as HTMLButtonElement, validation=$("validation");
-const palette=[0xff6b9f,0x69d9ff,0xffcf66,0x9e85ff,0x6ff0bd,0xff8b64,0x72a4ff,0xff7bd2,0xb9ed67,0x67e3d4,0xe5a0ff,0xffaa5b,0x84baff,0xf4dc77,0x70e7a2,0xff7891,0x7ce5f2,0xc19aff,0xf5a66d,0x9ce68a,0x8ea1ff,0xff91bd,0x6ddfc6,0xffc477,0xb6a1ff,0x8fd5ff,0xffa2a2,0x9fe2b7,0xe2a2e8,0xc5e77a];
-const clock=new THREE.Clock(), dummy=new THREE.Object3D(), temp=new THREE.Vector3();
-let scene:THREE.Scene, camera:THREE.PerspectiveCamera, renderer:THREE.WebGLRenderer, controls:OrbitControls, ready=false, running=false, starting=false, elapsed=0, launchCursor=0, launchClock=0, cameraMode:"follow"|"overview"="follow", cameraHoldUntil=0, totalDestroyed=0, shake=0, winnerShown=false;
-const racers:Racer[]=[], planets:Planet[]=[], particles:Particle[]=[], stars:THREE.Points[]=[];
-let cosmicBat:THREE.Group|null=null, batSwingTimer=0, ballsLaunched=false, launchPhase:"idle"|"windup"|"swing"|"followthrough"|"launched"="idle", launchPhaseTime=0, batRestPosition=new THREE.Vector3(-1,1,-1.15), audioContext:AudioContext|null=null, noiseBuffer:AudioBuffer|null=null;
-const sharedBallGeometry=new THREE.SphereGeometry(.48,24,18), sharedParticleGeometry=new THREE.IcosahedronGeometry(.12,0), sharedPlanetGeometry=new THREE.SphereGeometry(1,20,14), sharedPlanetAtmosphereGeometry=new THREE.SphereGeometry(1,20,14), sharedPlanetCloudGeometry=new THREE.SphereGeometry(1,16,12), sharedPlanetRingGeometry=new THREE.TorusGeometry(1.42,.13,6,40);
-const planetFrustum=new THREE.Frustum(), planetProjectionView=new THREE.Matrix4(), planetCullSphere=new THREE.Sphere();
-let lastPlanetCull=0;
-const planetColors=[0x7c74ff,0x42d6d0,0xff8b69,0xd58aff,0x5da7ff,0xffc45f,0x8bdc8a,0xf27db8];
-const formatTime=(n:number)=>{const m=Math.floor(n/60),s=n%60;return String(m).padStart(2,"0")+":"+s.toFixed(1).padStart(4,"0")};
-function random(seed:number){const x=Math.sin(seed*127.1+311.7)*43758.5453;return x-Math.floor(x)}
-function setStatus(s:string){$("status-label").textContent=s}
-function addFeed(message:string){const feed=$("event-feed");if(feedEntries===0)feed.innerHTML="";feedEntries++;const item=document.createElement("div");item.className="feed-item";item.innerHTML=message;feed.prepend(item);while(feed.children.length>7)feed.lastElementChild?.remove()}
-let feedEntries=0;
-function updateCount(){const count=namesInput.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean).length;$("name-count").textContent=`${count} / 30`;startButton.disabled=!ready||starting||running||count<2||count>30;validation.textContent=count>30?"최대 30명":count<2?"최소 2명":"준비 완료";validation.className=count>30?"validation error":count>=2?"validation good":"validation";if(ready&&!running&&!starting)syncRoster()}
-function makeNameTag(name:string,color:number){const canvas=document.createElement("canvas");canvas.width=512;canvas.height=128;const ctx=canvas.getContext("2d")!;ctx.fillStyle="#080b1ddd";ctx.strokeStyle="#ffffff70";ctx.lineWidth=4;ctx.beginPath();ctx.roundRect(8,8,496,112,36);ctx.fill();ctx.stroke();ctx.fillStyle="#"+color.toString(16).padStart(6,"0");ctx.beginPath();ctx.arc(48,64,15,0,Math.PI*2);ctx.fill();ctx.font="700 43px system-ui, sans-serif";ctx.textAlign="left";ctx.textBaseline="middle";ctx.fillStyle="#ffffff";const label=name.length>17?name.slice(0,16)+"…":name;ctx.fillText(label,82,66,395);const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:texture,transparent:true,depthWrite:false,depthTest:false}));sprite.scale.set(Math.max(1.45,Math.min(3.4,label.length*.105+.9)),.43,1);sprite.renderOrder=5;return sprite}
-function clearRacers(){for(const r of racers){scene.remove(r.mesh,r.trail,r.nameTag);r.mesh.traverse(obj=>{const item=obj as THREE.Mesh;if(item.geometry&&item.geometry!==sharedBallGeometry)item.geometry.dispose();if(item.material){for(const mat of Array.isArray(item.material)?item.material:[item.material])mat.dispose()}});r.nameTag.material.map?.dispose();r.nameTag.material.dispose();r.trail.geometry.dispose();(r.trail.material as THREE.Material).dispose()}racers.length=0}
-function syncRoster(){const names=namesInput.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean).slice(0,30);clearRacers();names.forEach((name,i)=>racers.push(makeRacer(name,i)));if(racers.length)updateLeaderboard();else $("leaderboard").innerHTML='<li class="empty-row">—</li>'}
-function ensureAudio(){try{const AudioCtor=window.AudioContext;if(!audioContext)audioContext=new AudioCtor();if(audioContext.state==="suspended")void audioContext.resume()}catch{}}
-function playBatSound(){if(!audioContext)return;const ctx=audioContext,t=ctx.currentTime,o=ctx.createOscillator(),g=ctx.createGain(),sub=ctx.createOscillator(),sg=ctx.createGain();o.type="sawtooth";o.frequency.setValueAtTime(155,t);o.frequency.exponentialRampToValueAtTime(38,t+.22);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.34,t+.012);g.gain.exponentialRampToValueAtTime(.0001,t+.28);sub.type="sine";sub.frequency.setValueAtTime(62,t);sub.frequency.exponentialRampToValueAtTime(28,t+.32);sg.gain.setValueAtTime(.0001,t);sg.gain.exponentialRampToValueAtTime(.48,t+.018);sg.gain.exponentialRampToValueAtTime(.0001,t+.38);o.connect(g).connect(ctx.destination);sub.connect(sg).connect(ctx.destination);o.start(t);sub.start(t);o.stop(t+.3);sub.stop(t+.4)}
-function playImpactSound(){if(!audioContext)return;const ctx=audioContext,t=ctx.currentTime;const boom=ctx.createOscillator(),bg=ctx.createGain(),crack=ctx.createOscillator(),cg=ctx.createGain();boom.type="sine";boom.frequency.setValueAtTime(92,t);boom.frequency.exponentialRampToValueAtTime(24,t+.72);bg.gain.setValueAtTime(.0001,t);bg.gain.exponentialRampToValueAtTime(.72,t+.018);bg.gain.exponentialRampToValueAtTime(.0001,t+.82);crack.type="triangle";crack.frequency.setValueAtTime(760,t);crack.frequency.exponentialRampToValueAtTime(58,t+.19);cg.gain.setValueAtTime(.0001,t);cg.gain.exponentialRampToValueAtTime(.23,t+.006);cg.gain.exponentialRampToValueAtTime(.0001,t+.24);boom.connect(bg).connect(ctx.destination);crack.connect(cg).connect(ctx.destination);boom.start(t);crack.start(t);boom.stop(t+.85);crack.stop(t+.26);if(!noiseBuffer){noiseBuffer=ctx.createBuffer(1,Math.floor(ctx.sampleRate*.32),ctx.sampleRate);const data=noiseBuffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*Math.pow(1-i/data.length,2)}const noise=ctx.createBufferSource(),filter=ctx.createBiquadFilter(),ng=ctx.createGain();noise.buffer=noiseBuffer;filter.type="lowpass";filter.frequency.setValueAtTime(3200,t);filter.frequency.exponentialRampToValueAtTime(180,t+.3);ng.gain.setValueAtTime(.0001,t);ng.gain.exponentialRampToValueAtTime(.34,t+.008);ng.gain.exponentialRampToValueAtTime(.0001,t+.34);noise.connect(filter).connect(ng).connect(ctx.destination);noise.start(t)}
-function makeGlowTexture(color:string){const c=document.createElement("canvas");c.width=c.height=128;const x=c.getContext("2d")!,g=x.createRadialGradient(64,64,2,64,64,62);g.addColorStop(0,color);g.addColorStop(.25,color+"aa");g.addColorStop(1,"transparent");x.fillStyle=g;x.fillRect(0,0,128,128);return new THREE.CanvasTexture(c)}
-function addStars(){const positions=new Float32Array(10500*3);for(let i=0;i<10500;i++){positions[i*3]=(random(i+4)-.5)*520;positions[i*3+1]=(random(i+9)-.5)*240;positions[i*3+2]=random(i+15)*1050-45}const geo=new THREE.BufferGeometry();geo.setAttribute("position",new THREE.BufferAttribute(positions,3));const points=new THREE.Points(geo,new THREE.PointsMaterial({color:0xd9d5ff,size:.28,transparent:true,opacity:.86,sizeAttenuation:true}));scene.add(points);stars.push(points)}
-function addNebula(){for(let i=0;i<12;i++){const mat=new THREE.SpriteMaterial({map:makeGlowTexture(["#603bff","#ff4fa5","#39d6d1","#795cff","#ff9e54","#45a8ff"][i%6]),transparent:true,opacity:.24,depthWrite:false,blending:THREE.AdditiveBlending});const s=new THREE.Sprite(mat);s.position.set((random(i+30)-.5)*68,(random(i+50)-.5)*42,8+i*17);s.scale.set(44,32,1);scene.add(s)}}
-function makePlanet(z:number,lane:number,index:number,altitude=0){const group=new THREE.Group(),radius=2.5+random(index+9)*1.6,color=planetColors[index%planetColors.length],mat=new THREE.MeshStandardMaterial({color,roughness:.72,metalness:.08});const core=new THREE.Mesh(sharedPlanetGeometry,mat);core.scale.setScalar(radius);group.add(core);const atmosphere=new THREE.Mesh(sharedPlanetAtmosphereGeometry,new THREE.MeshBasicMaterial({color,transparent:true,opacity:.12,side:THREE.BackSide,depthWrite:false}));atmosphere.scale.setScalar(radius*1.12);group.add(atmosphere);const cloud=new THREE.Mesh(sharedPlanetCloudGeometry,new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.12,wireframe:true,depthWrite:false}));cloud.scale.setScalar(radius*1.015);group.add(cloud);let ring:THREE.Mesh|null=null;if(index%3!==1){ring=new THREE.Mesh(sharedPlanetRingGeometry,new THREE.MeshStandardMaterial({color:index%2?0xffc1e4:0x9ceeff,emissive:index%2?0x7b3761:0x285d85,emissiveIntensity:.6,metalness:.5,roughness:.3}));ring.scale.setScalar(radius);ring.rotation.set(Math.PI/2.25+(random(index+831)-.5)*.8,(random(index+841)-.5)*.7,(random(index+851)-.5)*.8);group.add(ring)}group.position.set(lane,flightHeight(z)+altitude+((index%3)-1)*1.1,z);const baseY=group.position.y;scene.add(group);const p={mesh:group,core,position:group.position.clone(),radius,destroyed:false,label:["NEBULA-7","TITAN","PIXEL-9","AURORA","VULCAN","NOVA"][index%6],baseY,phase:random(index+811)*Math.PI*2,drift:.07+random(index+821)*.3,spinX:(random(index+861)-.5)*.1,spinY:(random(index+871)-.5)*.22,spinZ:(random(index+881)-.5)*.1,ring,ringSpin:(random(index+891)-.5)*.24};planets.push(p);return p}
-function flightHeight(z:number){return 2+z*.018}
-function populatePlanetField(){const rows=42,columns=13;for(let row=0;row<rows;row++){const z=32+row*34;for(let col=0;col<columns;col++){const index=row*columns+col,lane=(col-(columns-1)/2)*7.5+(random(index+213)*5.2-2.6),altitude=(random(index+317)-.5)*82;makePlanet(z+random(index+131)*12,lane,index,altitude)}}}
-function buildGalaxy(){addStars();addNebula();const floor=new THREE.Mesh(new THREE.PlaneGeometry(1100,1100),new THREE.MeshBasicMaterial({color:0x08091a,transparent:true,opacity:.16}));floor.rotation.x=-Math.PI/2;floor.position.y=-30;scene.add(floor);
-  const launchDeck=new THREE.Mesh(new THREE.CylinderGeometry(8,10,1.3,64),new THREE.MeshStandardMaterial({color:0x25243d,metalness:.7,roughness:.35,emissive:0x27154b,emissiveIntensity:.55}));launchDeck.position.set(0,-2.1,-2);scene.add(launchDeck);
-  for(let i=0;i<3;i++){const ring=new THREE.Mesh(new THREE.TorusGeometry(8.5+i*.65,.08,8,100),new THREE.MeshBasicMaterial({color:[0xff76c5,0x7b72ff,0x6cebdd][i],transparent:true,opacity:.8}));ring.rotation.x=Math.PI/2;ring.position.set(0,-1.25+i*.05,-2);scene.add(ring)}
-  // Monumental cosmic bat: a long metallic barrel, glowing sweet spot and handle.
-  const bat=new THREE.Group(),batModel=new THREE.Group();cosmicBat=bat;batModel.position.x=4.8;bat.add(batModel);const barrel=new THREE.Mesh(new THREE.CylinderGeometry(.82,.48,10,32),new THREE.MeshStandardMaterial({color:0x8f9ab5,metalness:.92,roughness:.2,emissive:0x36245f,emissiveIntensity:.65}));barrel.rotation.z=Math.PI/2;barrel.position.x=1.6;batModel.add(barrel);const sweet=new THREE.Mesh(new THREE.CylinderGeometry(.86,.86,2.2,32),new THREE.MeshStandardMaterial({color:0xffbd63,metalness:.75,roughness:.18,emissive:0xff5b9b,emissiveIntensity:1.7}));sweet.rotation.z=Math.PI/2;sweet.position.x=4.7;batModel.add(sweet);const grip=new THREE.Mesh(new THREE.CylinderGeometry(.32,.4,4.2,24),new THREE.MeshStandardMaterial({color:0x25233d,metalness:.82,roughness:.24}));grip.rotation.z=Math.PI/2;grip.position.x=-4.8;batModel.add(grip);
-  for(let i=0;i<7;i++){const wrap=new THREE.Mesh(new THREE.TorusGeometry(.355,.055,8,32),new THREE.MeshStandardMaterial({color:i%2?0xffc5e4:0x6cebdd,metalness:.65,roughness:.28,emissive:i%2?0x7b2858:0x155b61,emissiveIntensity:.8}));wrap.rotation.y=Math.PI/2;wrap.position.x=-6.35+i*.48;batModel.add(wrap)}
-  for(const x of [-2.8,-1.8,-.8,.2,1.2,2.2,3.2,5.5]){const band=new THREE.Mesh(new THREE.TorusGeometry(.78,.045,8,48),new THREE.MeshBasicMaterial({color:x>4?0xffd17c:0x83f5ff}));band.rotation.y=Math.PI/2;band.position.x=x;batModel.add(band)}
-  const pommel=new THREE.Mesh(new THREE.SphereGeometry(.48,24,16),new THREE.MeshStandardMaterial({color:0xffa4d5,metalness:.8,roughness:.18,emissive:0x9d286a,emissiveIntensity:1.2}));pommel.position.x=-7;batModel.add(pommel);
-  const batAura=new THREE.Mesh(new THREE.CylinderGeometry(1.02,.68,10.5,32,1,true),new THREE.MeshBasicMaterial({color:0x9b76ff,transparent:true,opacity:.13,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false}));batAura.rotation.z=Math.PI/2;batAura.position.x=1.5;batModel.add(batAura);
-  bat.position.set(-1,1,-1.15);bat.rotation.z=-.3;bat.name="cosmic-bat";scene.add(bat);
-  populatePlanetField(); 
-  for(let i=0;i<110;i++){const r=.35+random(i+70)*1.8,m=new THREE.Mesh(new THREE.IcosahedronGeometry(r,1),new THREE.MeshStandardMaterial({color:0x77718e,roughness:1,flatShading:true}));m.position.set((random(i+80)-.5)*75,flightHeight(30+i*7)+(random(i+90)-.5)*18,30+i*7);m.rotation.set(i*.7,i*.31,i*.17);scene.add(m)}
+type Racer = Flight & { color: number; mesh: THREE.Mesh; tag: THREE.Sprite; trail: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>; trailPoints: Float32Array; row: HTMLLIElement };
+type Phase = 'idle' | 'countdown' | 'windup' | 'swing' | 'followthrough' | 'flight' | 'settle' | 'results';
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const viewport = $('viewport'), namesInput = $<HTMLTextAreaElement>('names');
+const startButton = $<HTMLButtonElement>('start-race'), resetButton = $<HTMLButtonElement>('reset-race');
+const sound = new Sound();
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050b17);
+scene.fog = new THREE.FogExp2(0x080f20, .00135);
+const camera = new THREE.PerspectiveCamera(54, 1, .1, 1500);
+const cameraPosition = new THREE.Vector3(16, 11, -30), cameraTarget = new THREE.Vector3(3, 1, 6);
+const desiredPosition = new THREE.Vector3(), desiredTarget = new THREE.Vector3(), projection = new THREE.Vector3();
+const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4(), cullSphere = new THREE.Sphere();
+let renderer: THREE.WebGLRenderer, composer: EffectComposer, arena: Arena, effects: Effects;
+let phase: Phase = 'idle', phaseTime = 0, showTime = 0, elapsed = 0, accumulator = 0;
+let ready = false, struck = false, totalDestroyed = 0, hitStop = 0, slowMotion = 0, shake = 0, flash = 0, impactCooldown = 0;
+let cueLife = 0, impactLife = 0, uiClock = 0, cullClock = 0, lastTick = -1, lastLeader = -1, leaderHold = 0;
+let focus: Racer | null = null, impactFocus = new THREE.Vector3(), impactFocusLife = 0;
+let chargeParticles = 0;
+const racers: Racer[] = [];
+const clock = new THREE.Clock();
+
+function status(text: string) { $('status-label').textContent = text; }
+function setPhase(next: Phase) {
+  phase = next; phaseTime = 0; document.body.dataset.phase = next;
+  $('event-label').textContent = ({ idle: 'STANDBY', countdown: 'GET READY', windup: 'CHARGING', swing: 'FULL SWING', followthrough: 'LIFT OFF', flight: 'IN FLIGHT', settle: 'FINAL RESULTS', results: 'COMPLETE' })[next];
 }
-function makeRacer(name:string,index:number):Racer{const color=palette[index%palette.length],mat=new THREE.MeshStandardMaterial({color,metalness:.35,roughness:.22,emissive:color,emissiveIntensity:.45});const mesh=new THREE.Mesh(sharedBallGeometry,mat);const seamMat=new THREE.MeshStandardMaterial({color:0xffe6d2,metalness:.25,roughness:.4,emissive:color,emissiveIntensity:.18});const seamA=new THREE.Mesh(new THREE.TorusGeometry(.345,.018,6,48),seamMat);seamA.rotation.set(.72,.4,.25);mesh.add(seamA);const seamB=new THREE.Mesh(new THREE.TorusGeometry(.345,.018,6,48),seamMat.clone());seamB.rotation.set(1.18,-.65,.9);mesh.add(seamB);const aura=new THREE.Mesh(new THREE.SphereGeometry(.53,20,14),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.14,blending:THREE.AdditiveBlending,depthWrite:false}));mesh.add(aura);mesh.position.set((index%6-2.5)*1.15,1.5+Math.floor(index/6)*.7,1);mesh.castShadow=true;scene.add(mesh);const nameTag=makeNameTag(name,color);nameTag.position.set(mesh.position.x,mesh.position.y+.9,mesh.position.z);scene.add(nameTag);const trailPositions=new Float32Array(36*3);const geo=new THREE.BufferGeometry();geo.setAttribute("position",new THREE.BufferAttribute(trailPositions,3));const trail=new THREE.Points(geo,new THREE.PointsMaterial({color,size:.36,transparent:true,opacity:.72,depthWrite:false}));scene.add(trail);return{name,color,mesh,nameTag,trail,trailPositions,trailIndex:0,velocity:new THREE.Vector3(),position:mesh.position.clone(),launched:false,done:false,launchAt:index*.34,planets:0,distance:0,flightTime:0,maxZ:0}}
-function createParticles(position:THREE.Vector3,color:number,count:number,power:number){const material=new THREE.MeshBasicMaterial({color,transparent:true,opacity:1});for(let i=0;i<count;i++){const mesh=new THREE.Mesh(sharedParticleGeometry,material);mesh.position.copy(position);const v=new THREE.Vector3(random(i*7+elapsed*91)-.5,random(i*11+elapsed*71)-.5,random(i*17+elapsed*53)-.5).normalize().multiplyScalar(power*(.35+random(i+31)));scene.add(mesh);particles.push({mesh,velocity:v,life:.7+random(i+43)*1.1,maxLife:1.8,spin:new THREE.Vector3(random(i+3),random(i+5),random(i+7)),material})}}
-function smashPlanet(planet:Planet,racer:Racer){if(planet.destroyed)return;planet.destroyed=true;racer.planets++;totalDestroyed++;shake=Math.max(shake,1.25);$("impact-flash").classList.remove("active");void $("impact-flash").offsetWidth;$("impact-flash").classList.add("active");const pos=planet.position.clone(),color=(planet.core.material as THREE.MeshStandardMaterial).color.getHex();playImpactSound();createParticles(pos,color,88,18);createParticles(pos,0xffd88b,38,24);createParticles(pos,0x8cecff,24,20);const shock=new THREE.Mesh(new THREE.TorusGeometry(planet.radius*.72,.2,10,80),new THREE.MeshBasicMaterial({color:0xffe1a0,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false}));shock.position.copy(pos);scene.add(shock);const shock2=new THREE.Mesh(new THREE.TorusGeometry(planet.radius*.92,.09,8,80),new THREE.MeshBasicMaterial({color:0x8cecff,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false}));shock2.position.copy(pos);shock2.rotation.x=.7;scene.add(shock2);const flashSphere=new THREE.Mesh(new THREE.SphereGeometry(planet.radius*.7,24,16),new THREE.MeshBasicMaterial({color:0xffe5bd,transparent:true,opacity:.58,blending:THREE.AdditiveBlending,depthWrite:false}));flashSphere.position.copy(pos);scene.add(flashSphere);let t=0;const animateShock=()=>{t+=.045;shock.scale.setScalar(1+t*6);shock2.scale.setScalar(1+t*4.4);flashSphere.scale.setScalar(1+t*5);(shock.material as THREE.MeshBasicMaterial).opacity=Math.max(0,1-t);(shock2.material as THREE.MeshBasicMaterial).opacity=Math.max(0,.9-t);(flashSphere.material as THREE.MeshBasicMaterial).opacity=Math.max(0,.58-t*.8);if(t<1)requestAnimationFrame(animateShock);else{for(const effect of [shock,shock2,flashSphere]){scene.remove(effect);effect.geometry.dispose();(effect.material as THREE.Material).dispose()}}};requestAnimationFrame(animateShock);scene.remove(planet.mesh);addFeed(`<b>PLANET BREAKER</b> · ${racer.name} shattered ${planet.label}!`)}
-function updateLeaderboard(){const sorted=[...racers].sort((a,b)=>b.planets-a.planets||b.distance-a.distance);const list=$("leaderboard");list.innerHTML="";for(let i=0;i<sorted.length;i++){const r=sorted[i],li=document.createElement("li");li.innerHTML=`<span class="rank">${String(i+1).padStart(2,"0")}</span><i class="marble-swatch" style="background:#${r.color.toString(16).padStart(6,"0")};color:#${r.color.toString(16).padStart(6,"0")}"></i><span class="racer-name"></span><span class="racer-time">${r.planets} ✦</span>`;li.querySelector(".racer-name")!.textContent=r.name;list.append(li)}$("finished-count").textContent=String(racers.filter(r=>r.done).length);$("remaining-count").textContent=String(totalDestroyed)}
-function updateTrail(r:Racer){const i=r.trailIndex++%12;const attr=r.trail.geometry.getAttribute("position") as THREE.BufferAttribute;attr.setXYZ(i,r.position.x,r.position.y,r.position.z);attr.needsUpdate=true}
-function launch(r:Racer,index:number){r.launched=true;const contactX=(random(index+601)-.5)*.34,contactY=(random(index+607)-.5)*.3,contactZ=(random(index+613)-.5)*.22;r.position.x+=contactX;r.position.y+=contactY;r.position.z+=contactZ;const sideBias=contactX*10,verticalBias=contactY*9;r.velocity.set((random(index+1)-.5)*8.5+sideBias,7.2+verticalBias+(random(index+2)-.5)*2.4,82+random(index+3)*16+Math.abs(contactX)*5);r.mesh.position.copy(r.position);r.launchAt=elapsed;r.nameTag.position.set(r.position.x,r.position.y+.9,r.position.z);const flash=new THREE.PointLight(r.color,22,20,2);flash.position.copy(r.position);scene.add(flash);setTimeout(()=>{scene.remove(flash)},260)}
-function finishRacer(r:Racer){r.done=true;r.trail.visible=false;r.mesh.visible=false;r.nameTag.visible=false}
-function updateSimulation(dt:number){elapsed+=dt;launchClock+=dt;if(cosmicBat&&launchPhase==="windup"){launchPhaseTime+=dt;const t=Math.min(1,launchPhaseTime/1.75),ease=t*t*(3-2*t),load=t>.72?Math.sin((t-.72)*Math.PI*7)*.018:0;cosmicBat.position.copy(batRestPosition);cosmicBat.position.x-=.12*ease;cosmicBat.position.y+=.08*ease;cosmicBat.rotation.set(.16*ease,-.22*ease,-.3-.42*ease+load);if(t>=1){launchPhase="swing";launchPhaseTime=0;playBatSound();setStatus("FULL SWING");$("event-label").textContent="FULL SWING"}}else if(cosmicBat&&launchPhase==="swing"){launchPhaseTime+=dt;const t=Math.min(1,launchPhaseTime/.64),impactT=.72,pre=THREE.MathUtils.clamp(t/impactT,0,1),drive=1-Math.pow(1-pre,3),after=THREE.MathUtils.clamp((t-impactT)/(1-impactT),0,1),follow=after*after*(3-2*after);cosmicBat.position.copy(batRestPosition);cosmicBat.position.x-=.12*(1-t)+.24*Math.sin(Math.PI*t);cosmicBat.position.y+=.08*(1-t)+.18*Math.sin(Math.PI*t);const impactAngle=-.72+.96*drive,arc=t<impactT?impactAngle:.24+.72*follow;const shoulder=t<impactT?-.22+.38*drive:.16-.16*follow;const twist=t<impactT?-.22+.52*drive:.30-.22*follow;cosmicBat.rotation.set(shoulder,twist,arc);if(!ballsLaunched&&t>=impactT){ballsLaunched=true;shake=Math.max(shake,3.4);for(let i=0;i<racers.length;i++)launch(racers[i],i);launchCursor=racers.length;addFeed(`<b>ONE MASSIVE SWING</b> · All ${racers.length} balls struck in one arc!`);$("event-label").textContent="ALL BALLS AIRBORNE";setStatus("GALAXY-WIDE LAUNCH")}if(t>=1){launchPhase="followthrough";launchPhaseTime=0}}else if(cosmicBat&&launchPhase==="followthrough"){launchPhaseTime+=dt;const t=Math.min(1,launchPhaseTime/.58),damp=Math.exp(-3.6*t),settle=t*t*(3-2*t),osc=Math.sin(t*Math.PI*2.4)*damp;cosmicBat.position.copy(batRestPosition);cosmicBat.position.x+=.24*settle;cosmicBat.position.y-=.12*settle;cosmicBat.rotation.set(-.08*settle+osc*.055,.08+.12*settle+osc*.08,.96+.39*settle+osc*.12);if(t>=1){launchPhase="launched";cosmicBat.position.copy(batRestPosition);cosmicBat.position.x+=.24;cosmicBat.position.y-=.12;cosmicBat.rotation.set(-.08,.20,1.35)}}else if(cosmicBat&&launchPhase==="idle"){cosmicBat.position.copy(batRestPosition);cosmicBat.rotation.set(0,0,-.3)}
-  for(const r of racers){if(!r.launched||r.done){if(!r.launched){const index=racers.indexOf(r),col=index%6,row=Math.floor(index/6),lane=batRestPosition.x+3.25+col*1.38+(random(index+701)-.5)*.18,baseY=.95+row*.16;if(launchPhase==="windup"){const t=THREE.MathUtils.clamp(launchPhaseTime/1.9,0,1),rise=1.65*Math.sin(Math.PI*t*.78),fall=1.15*THREE.MathUtils.smoothstep(t,.48,1);r.mesh.position.set(lane,baseY+rise-fall,batRestPosition.z+.55)}else if(launchPhase==="swing"&&!ballsLaunched){const t=THREE.MathUtils.clamp(launchPhaseTime/(.64*.72),0,1);r.mesh.position.y=baseY-.1-.48*THREE.MathUtils.smoothstep(t,0,1);r.mesh.position.x=lane;r.mesh.position.z=batRestPosition.z+.55}r.nameTag.position.set(r.mesh.position.x,r.mesh.position.y+.9,r.mesh.position.z);r.nameTag.visible=true}continue}r.flightTime+=dt;const forwardSpeed=Math.max(0,r.velocity.z),stall=THREE.MathUtils.clamp(1-forwardSpeed/58,0,1),plungeGravity=2.4+19*Math.pow(stall,2.2);r.velocity.y-=plungeGravity*dt;r.velocity.x*=Math.exp(-.16*dt);r.velocity.y*=Math.exp(-.055*dt);r.velocity.z*=Math.exp(-.052*dt);r.position.addScaledVector(r.velocity,dt);r.mesh.position.copy(r.position);r.nameTag.position.set(r.position.x,r.position.y+.9,r.position.z);r.mesh.rotation.x+=dt*7;r.mesh.rotation.z+=dt*4;r.distance=Math.max(r.distance,r.position.z);r.maxZ=Math.max(r.maxZ,r.position.z);updateTrail(r);
-    for(const p of planets){if(p.destroyed)continue;const dz=r.position.z-p.position.z,reach=p.radius+.48;if(Math.abs(dz)>reach)continue;const dx=r.position.x-p.position.x,dy=r.position.y-p.position.y;if(dx*dx+dy*dy+dz*dz<reach*reach){smashPlanet(p,r);r.velocity.multiplyScalar(1.13);break}}
-    if(r.position.z>930||r.position.y< -48||r.flightTime>24)finishRacer(r);
+function cue(kicker: string, title: string, detail = '', duration = 1.1) {
+  $('cue-kicker').textContent = kicker; $('cue-title').textContent = title; $('cue-detail').textContent = detail;
+  $('scene-cue').classList.remove('hidden'); cueLife = duration;
+}
+function feed(title: string, detail: string, color = '#73d9ef') {
+  const item = document.createElement('div'), label = document.createElement('b'), body = document.createElement('span');
+  item.className = 'feed-item'; label.textContent = title; label.style.color = color; body.textContent = detail;
+  item.append(label, body); $('event-feed').prepend(item);
+  while ($('event-feed').children.length > 5) $('event-feed').lastElementChild?.remove();
+}
+function makeTag(name: string, color: number) {
+  const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 112;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#06101cda'; ctx.strokeStyle = hex(color) + '99'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.roundRect(8, 8, 496, 96, 25); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = hex(color); ctx.beginPath(); ctx.arc(43, 56, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.font = '700 40px system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+  const characters = Array.from(name), label = characters.length > 16 ? characters.slice(0, 15).join('') + '…' : name;
+  ctx.fillText(label, 68, 58, 418);
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+  const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false }));
+  tag.scale.set(3.9, .85, 1); tag.renderOrder = 8; return tag;
+}
+function clearRacers() {
+  for (const racer of racers) {
+    scene.remove(racer.mesh, racer.tag, racer.trail);
+    // Arena geometries are shared; only racer-owned materials/textures are released.
+    racer.mesh.traverse(object => {
+      if (object instanceof THREE.Mesh || object instanceof THREE.Sprite) {
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach(material => material.dispose());
+      }
+    });
+    racer.tag.material.map?.dispose(); racer.tag.material.dispose(); racer.trail.geometry.dispose(); racer.trail.material.dispose();
   }
-  for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;p.velocity.y-=3.2*dt;p.mesh.position.addScaledVector(p.velocity,dt);p.mesh.rotation.x+=p.spin.x*dt*5;p.mesh.rotation.y+=p.spin.y*dt*5;p.mesh.scale.setScalar(Math.max(.02,p.life/p.maxLife));(p.mesh.material as THREE.MeshBasicMaterial).opacity=Math.max(0,p.life/p.maxLife);if(p.life<=0){scene.remove(p.mesh);particles.splice(i,1);if(!particles.some(other=>other.material===p.material))p.material.dispose()}}
-  if(Math.floor(elapsed*3)!==Math.floor((elapsed-dt)*3))updateLeaderboard();
-  $("race-time").textContent=formatTime(elapsed);
-  if(racers.length&&racers.every(r=>r.done)&&!winnerShown){winnerShown=true;running=false;const sorted=[...racers].sort((a,b)=>b.planets-a.planets||b.distance-a.distance),winner=sorted[0];$("winner-name").textContent=winner.name;$("winner-planets").textContent=String(winner.planets);$("winner-distance").textContent=`${Math.round(winner.distance)} m`;$("winner-roster").textContent=String(racers.length);const podium=$("winner-podium");podium.innerHTML="";sorted.slice(0,3).forEach((r,i)=>{const li=document.createElement("li"),rank=document.createElement("span"),name=document.createElement("span"),score=document.createElement("b");rank.textContent=String(i+1).padStart(2,"0");name.textContent=r.name;score.textContent=`${r.planets} ✦`;li.append(rank,name,score);podium.append(li)});$("winner-banner").classList.remove("hidden");setStatus("GALACTIC CHAMPION CROWNED");$("event-label").textContent="MISSION COMPLETE";addFeed(`<b>GALACTIC MVP</b> · ${winner.name} wins the smash-off!`);startButton.disabled=false}
+  racers.length = 0; focus = null; $('leaderboard').replaceChildren();
 }
-function updateCamera(dt:number){if(cameraMode==="overview"){temp.set(0,90,390);camera.position.lerp(temp,1-Math.exp(-dt*.7));controls.target.lerp(new THREE.Vector3(0,18,410),1-Math.exp(-dt*.7));controls.update();return}if(performance.now()<cameraHoldUntil){controls.update();return}const active=[...racers].filter(r=>r.launched&&!r.done);let target:THREE.Vector3;if(active.length){const current=active.reduce((a,b)=>a.position.z>b.position.z?a:b);target=current.position}else target=new THREE.Vector3(0,2,0);const desired=new THREE.Vector3(target.x*.45,target.y+Math.max(12,target.z*.018),target.z-42);camera.position.lerp(desired,1-Math.exp(-dt*2.2));controls.target.lerp(target,1-Math.exp(-dt*3.5));controls.update()}
-function animate(){requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05);if(running)updateSimulation(dt);updateCamera(dt);const now=performance.now();if(now-lastPlanetCull>110){lastPlanetCull=now;camera.updateMatrixWorld();planetProjectionView.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);planetFrustum.setFromProjectionMatrix(planetProjectionView);for(const p of planets){if(p.destroyed)continue;planetCullSphere.center.copy(p.mesh.position);planetCullSphere.radius=p.radius*1.85;p.mesh.visible=camera.position.distanceToSquared(p.mesh.position)<760*760&&planetFrustum.intersectsSphere(planetCullSphere)}}if(shake>.01){camera.position.x+=(random(elapsed*70)-.5)*shake;camera.position.y+=(random(elapsed*93)-.5)*shake*.6;camera.position.z+=(random(elapsed*51)-.5)*shake*.22;shake*=.86}for(const p of planets)if(!p.destroyed&&p.mesh.visible){p.mesh.position.y=p.baseY+Math.sin(elapsed*p.drift+p.phase)*(.10+p.drift*.24);p.position.copy(p.mesh.position);p.mesh.rotation.x+=dt*p.spinX;p.mesh.rotation.y+=dt*p.spinY;p.mesh.rotation.z+=dt*p.spinZ;if(p.ring)p.ring.rotation.z+=dt*p.ringSpin}renderer.render(scene,camera)}
-function clearDynamic(){running=false;launchPhase="idle";launchPhaseTime=0;ballsLaunched=false;cosmicBat?.position.copy(batRestPosition);cosmicBat?.rotation.set(0,0,-.3);clearRacers();for(const p of particles){scene.remove(p.mesh)}particles.length=0;for(const p of planets){scene.remove(p.mesh)}planets.length=0;totalDestroyed=0;elapsed=0;launchCursor=0;launchClock=0;winnerShown=false;shake=0;$("winner-banner").classList.add("hidden");$("event-feed").innerHTML='<span class="feed-empty">거대한 한 방을 준비 중…</span>';feedEntries=0;$("race-time").textContent="00:00.0";$("remaining-count").textContent="0";$("event-label").textContent="STANDBY";$("leaderboard").innerHTML='<li class="empty-row">아직 발사된 공이 없어.</li>'}
-function resetGame(){running=false;starting=false;clearDynamic();namesInput.disabled=false;document.body.classList.remove("race-mode");startButton.disabled=false;resetButton.disabled=true;updateCount();setStatus("SYSTEM READY")}
-async function startGame(){ensureAudio();const names=namesInput.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);if(names.length<2||names.length>30)return;starting=true;startButton.disabled=true;resetButton.disabled=true;clearDynamic();document.body.classList.add("race-mode");resize();populatePlanetField();
-  names.forEach((name,i)=>racers.push(makeRacer(name,i)));updateLeaderboard();namesInput.disabled=true;launchPhase="idle";launchPhaseTime=0;ballsLaunched=false;cosmicBat?.position.copy(batRestPosition);const countdown=$("countdown");countdown.classList.remove("hidden");setStatus("BAT CHARGING");for(const n of ["3","2","1"]){countdown.textContent=n;await new Promise(resolve=>setTimeout(resolve,650));if(!starting)return}countdown.textContent="PULL BACK!";running=true;launchPhase="windup";launchPhaseTime=0;cameraMode="follow";cameraHoldUntil=0;setStatus("BAT PULLBACK");$("event-label").textContent="POWERING UP";await new Promise(resolve=>setTimeout(resolve,1900));if(!starting)return;countdown.textContent="FULL SWING!";await new Promise(resolve=>setTimeout(resolve,720));countdown.classList.add("hidden");starting=false;addFeed(`<b>CHARGING THE COSMIC BAT</b> · ${names.length} balls locked in formation!`);resetButton.disabled=false}
-function resize(){if(!renderer||!camera)return;const rect=viewport.getBoundingClientRect(),w=Math.max(1,Math.round(rect.width)),h=Math.max(1,Math.round(rect.height));camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);renderer.domElement.style.width="100%";renderer.domElement.style.height="100%";}
-async function boot(){scene=new THREE.Scene();scene.background=new THREE.Color(0x070817);scene.fog=new THREE.FogExp2(0x08091a,.00062);camera=new THREE.PerspectiveCamera(54,Math.max(1,viewport.clientWidth)/Math.max(1,viewport.clientHeight),.1,1800);camera.position.set(0,10,-25);renderer=new THREE.WebGLRenderer({antialias:window.devicePixelRatio<2,powerPreference:"high-performance"});renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.5));renderer.setSize(Math.max(1,viewport.clientWidth),Math.max(1,viewport.clientHeight),false);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.22;renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;viewport.appendChild(renderer.domElement);controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.08;controls.minDistance=8;controls.maxDistance=320;controls.addEventListener("start",()=>cameraHoldUntil=performance.now()+5000);controls.addEventListener("end",()=>cameraHoldUntil=performance.now()+3500);scene.add(new THREE.HemisphereLight(0xaaaaff,0x171027,2.1));const key=new THREE.DirectionalLight(0xffffff,3.2);key.position.set(-10,20,-5);key.castShadow=true;key.shadow.mapSize.set(1024,1024);scene.add(key);const fill=new THREE.PointLight(0x8b63ff,65,320);fill.position.set(0,15,35);scene.add(fill);const rim=new THREE.PointLight(0xff6ba9,48,260);rim.position.set(12,5,80);scene.add(rim);buildGalaxy();namesInput.addEventListener("input",updateCount);startButton.addEventListener("click",()=>void startGame().catch(e=>{console.error(e);starting=false;startButton.disabled=false;setStatus("LAUNCH ERROR")}));resetButton.addEventListener("click",resetGame);$("winner-close").addEventListener("click",()=>$("winner-banner").classList.add("hidden"));$("camera-mode").addEventListener("click",()=>{cameraMode=cameraMode==="follow"?"overview":"follow";$("camera-mode").textContent=cameraMode==="follow"?"CAM: FOLLOW":"CAM: OVERVIEW";cameraHoldUntil=0});window.addEventListener("resize",resize);const viewportObserver=new ResizeObserver(()=>resize());viewportObserver.observe(viewport);requestAnimationFrame(resize);ready=true;updateCount();resetButton.disabled=true;setStatus("SYSTEM READY");requestAnimationFrame(animate)}
-void boot().catch(e=>{console.error("Cosmic Slugger failed to initialize",e);setStatus("SYSTEM ERROR");validation.textContent="3D 엔진을 시작하지 못했어. 브라우저를 새로고침해 줘.";validation.className="validation error"});
+function createRoster() {
+  clearRacers();
+  parseNames(namesInput.value).forEach((name, index) => {
+    const flight = createFlight(name, index), color = colors[index], mesh = arena.makeBall(color), tag = makeTag(name, color);
+    const trailPoints = new Float32Array(48 * 3), geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(trailPoints, 3).setUsage(THREE.DynamicDrawUsage));
+    const trail = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: .65, blending: THREE.AdditiveBlending, depthWrite: false }));
+    trail.frustumCulled = false; trail.visible = false; mesh.position.copy(flight.position); tag.position.copy(mesh.position).y += 1.05;
+    const row = document.createElement('li');
+    row.innerHTML = '<span class="rank"></span><i class="marble-swatch"></i><span class="racer-name"></span><span class="racer-score"><b></b><small></small></span>';
+    row.querySelector<HTMLElement>('.racer-name')!.textContent = name;
+    row.querySelector<HTMLElement>('.marble-swatch')!.style.setProperty('--ball', hex(color));
+    row.title = name; $('leaderboard').append(row);
+    racers.push({ ...flight, color, mesh, tag, trail, trailPoints, row }); scene.add(mesh, tag, trail);
+  });
+  updateLeaderboard();
+}
+function updateCount() {
+  const rawCount = namesInput.value.split(/\r?\n/).filter(name => name.trim()).length, count = Math.min(30, rawCount);
+  $('name-count').textContent = `${count.toString().padStart(2, '0')} / 30`;
+  startButton.disabled = !ready || count < 2 || phase !== 'idle';
+  $('validation').textContent = rawCount > 30 ? '앞의 30명으로 진행합니다.' : count < 2 ? '이름을 한 줄에 한 명씩, 2–30명 입력하세요.' : `${count}명 탑승 준비 완료 · 시작하면 자동으로 진행됩니다.`;
+  $('validation').className = count >= 2 ? 'validation good' : 'validation';
+  if (ready && phase === 'idle') createRoster();
+}
+function updateLeaderboard() {
+  const sorted = [...racers].sort(compareFlights);
+  sorted.forEach((racer, index) => {
+    racer.row.querySelector('.rank')!.textContent = (index + 1).toString().padStart(2, '0');
+    racer.row.querySelector('.racer-score b')!.textContent = `${racer.planets} ✦`;
+    racer.row.querySelector('.racer-score small')!.textContent = `${Math.round(racer.distance)} m`;
+    racer.row.classList.toggle('is-leader', index === 0 && struck);
+    racer.row.classList.toggle('is-focus', racer === focus);
+    racer.row.classList.toggle('is-done', racer.done);
+    racer.row.title = `${racer.name} · ${racer.planets}개 파괴 · ${Math.round(racer.distance)} m`;
+    if ($('leaderboard').children[index] !== racer.row) $('leaderboard').insertBefore(racer.row, $('leaderboard').children[index] || null);
+  });
+  $('roster-total').textContent = String(racers.length).padStart(2, '0');
+  $('finished-count').textContent = `${racers.filter(racer => racer.done).length} / ${racers.length}`;
+  $('remaining-count').textContent = String(totalDestroyed).padStart(2, '0');
+  if (sorted.length && struck) {
+    const leader = sorted[0];
+    $('leader-name').textContent = leader.name; $('leader-score').textContent = `${leader.planets} ✦`;
+    if (lastLeader !== -1 && lastLeader !== leader.index && leaderHold <= 0 && phase === 'flight') {
+      feed('LEAD CHANGE', `${leader.name} · ${leader.planets}개 파괴`, hex(leader.color));
+      cue('순위 역전', 'NEW LEADER', leader.name, 1); leaderHold = 2.5;
+    }
+    lastLeader = leader.index;
+  }
+  if (!racers.length && !$('leaderboard').children.length) {
+    const empty = document.createElement('li'); empty.className = 'empty-row'; empty.textContent = '탑승할 학생들을 기다리고 있어요.'; $('leaderboard').append(empty);
+  }
+}
+function strike() {
+  if (struck) return;
+  struck = true; sound.impact(true); shake = reducedMotion ? .2 : 1.65; flash = .8; hitStop = .095; slowMotion = .26;
+  for (const racer of racers) {
+    launchFlight(racer);
+    for (let i = 0; i < 48; i++) racer.trailPoints.set([racer.position.x, racer.position.y, racer.position.z], i * 3);
+    racer.trail.geometry.getAttribute('position').needsUpdate = true; racer.trail.visible = true;
+  }
+  effects.burst({ x: 5.5, y: 1.1, z: 0 }, 0xffce88, 2.6, true);
+  $('charge-value').textContent = '100'; $('charge-fill').style.transform = 'scaleX(1)';
+  cue('PERFECT CONTACT', 'BIG BANG!', `${racers.length}개의 궤적, 단 한 번의 스윙.`, 1.05);
+  status('ALL BALLS AIRBORNE'); feed('BIG BANG', `${racers.length}명, 은하를 향해 출발!`, '#ffcf86');
+}
+function smashPlanet(planet: Planet, racer: Racer) {
+  planet.mesh.visible = false; totalDestroyed++;
+  effects.burst(planet.position, planet.color, planet.radius); sound.impact();
+  if (impactCooldown <= 0) { hitStop = .052; slowMotion = .16; impactCooldown = .22; }
+  shake = Math.max(shake, reducedMotion ? .1 : .6); flash = Math.max(flash, .32);
+  const worldPosition = new THREE.Vector3().copy(planet.position);
+  if (camera.position.distanceTo(worldPosition) < 130) { impactFocus.copy(worldPosition); impactFocusLife = .65; }
+  $('impact-name').textContent = racer.name; $('impact-score').textContent = `${racer.planets} ✦`;
+  $('impact-world').textContent = `${planet.label} DESTROYED`;
+  $('impact-callout').style.setProperty('--impact-color', hex(racer.color));
+  $('impact-callout').classList.remove('hidden'); impactLife = 1.1;
+  // A single screen callout replaces overlapping score popups in busy 30-player rounds.
+  feed(`PLANET BREAK +${racer.planets}`, `${racer.name} · ${planet.label}`, hex(racer.color));
+}
+function updatePhase(dt: number) {
+  if (phase === 'idle' || phase === 'results') return;
+  if (!(phase === 'swing' && hitStop > 0)) phaseTime += dt;
+  if (phase === 'countdown') {
+    const tick = Math.min(2, Math.floor(phaseTime / .72));
+    if (tick !== lastTick) {
+      lastTick = tick; sound.tick(tick === 2); $('countdown').textContent = String(3 - tick);
+      $('countdown').classList.remove('count-pop'); void $('countdown').offsetWidth; $('countdown').classList.add('count-pop');
+    }
+    if (phaseTime >= 2.16) { $('countdown').classList.add('hidden'); setPhase('windup'); sound.charge(); cue('REACTOR ONLINE', 'CHARGE UP', '모든 에너지가 한 점으로.', 1.35); status('BAT CHARGING'); }
+  } else if (phase === 'windup') {
+    const t = Math.min(1, phaseTime / 1.35), ease = t * t * (3 - 2 * t);
+    arena.bat.position.set(-1 - .35 * ease, 1 + .1 * ease, -1.15);
+    arena.bat.rotation.set(.16 * ease, -.3 * ease, -.3 - .52 * ease + Math.sin(phaseTime * 45) * .012 * t);
+    arena.batPower.emissiveIntensity = 1.5 + t * 3;
+    $('charge-value').textContent = String(Math.round(t * 100)).padStart(2, '0'); $('charge-fill').style.transform = `scaleX(${t})`;
+    chargeParticles += dt;
+    if (chargeParticles > .025) { chargeParticles = 0; effects.charge({ x: 5.5, y: 1.2, z: -.5 }, t, showTime); }
+    if (phaseTime >= 1.35) setPhase('swing');
+  } else if (phase === 'swing') {
+    const t = Math.min(1, phaseTime / .48), drive = Math.min(1, t / .64), ease = drive * drive * drive;
+    arena.bat.position.set(-1 + .5 * ease, 1, -1.15 + .25 * ease);
+    arena.bat.rotation.set(.16 - .2 * ease, -.3 + .65 * ease, -.82 + 1.13 * ease + Math.max(0, t - .64) * 2.1);
+    if (t >= .64 && !struck) strike();
+    if (t >= 1) setPhase('followthrough');
+  } else if (phase === 'followthrough') {
+    arena.bat.rotation.z = 1.066 + .3 * (1 - Math.exp(-phaseTime * 6));
+    if (phaseTime >= .7) { setPhase('flight'); status('PLANET BREAKERS IN FLIGHT'); }
+  } else if (phase === 'settle') {
+    if (phaseTime >= 1.7) showWinner();
+  }
+}
+function updateFlight(dt: number) {
+  if (!struck || phase === 'settle' || phase === 'results') return;
+  accumulator += dt;
+  while (accumulator >= STEP) {
+    stepFlights(racers, arena.planets, smashPlanet); elapsed += STEP; accumulator -= STEP;
+    if (hitStop > 0) { accumulator = 0; break; }
+  }
+  if (racers.length && racers.every(racer => racer.done)) {
+    updateLeaderboard(); setPhase('settle'); status('CALCULATING FINAL RANK');
+    cue('ALL FLIGHTS COMPLETE', 'WHO IS THE CHAMPION?', '마지막 궤적까지, 순위 확정 중.', 1.7);
+  }
+}
+function drawRacers(dt: number) {
+  const active = racers.filter(racer => racer.launched && !racer.done);
+  const front = active.reduce((max, racer) => Math.max(max, racer.position.z), 0);
+  // All balls remain visible. Names are restricted to the focus and nearby front
+  // pack so thirty overlapping labels don't obscure an impact.
+  for (const racer of racers) {
+    const p = racer.position;
+    if (!racer.launched) {
+      const rise = phase === 'windup' ? Math.sin(Math.min(1, phaseTime / 1.35) * Math.PI) * 1.45 : 0;
+      racer.mesh.position.set(p.x, p.y + rise + Math.sin(showTime * 1.7 + racer.index) * .08, p.z);
+    } else racer.mesh.position.copy(p);
+    racer.mesh.rotation.x += dt * (racer.launched ? 8 : .4); racer.mesh.rotation.z += dt * 2;
+    racer.mesh.visible = !racer.done;
+    racer.tag.position.copy(racer.mesh.position); racer.tag.position.y += racer === focus ? 1.25 : .95;
+    const labelHeight = camera.position.distanceTo(racer.mesh.position) * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 34 / Math.max(1, viewport.clientHeight);
+    racer.tag.scale.set(labelHeight * 512 / 112, labelHeight, 1);
+    racer.tag.position.y = racer.mesh.position.y + .9 + labelHeight * .55;
+    racer.tag.visible = !racer.done && (struck ? racer === focus || (front - p.z < 40 && racers.length <= 8) : racers.length <= 6);
+    if (racer.launched && !racer.done && dt > 0) {
+      racer.trailPoints.copyWithin(3, 0, racer.trailPoints.length - 3); racer.trailPoints.set([p.x, p.y, p.z], 0);
+      racer.trail.geometry.getAttribute('position').needsUpdate = true;
+    }
+    racer.trail.visible = racer.launched && !racer.done;
+  }
+}
+function updateCamera(dt: number) {
+  const active = racers.filter(racer => racer.launched && !racer.done);
+  const front = active.reduce<Racer | null>((best, racer) => !best || racer.position.z > best.position.z ? racer : best, null);
+  focus = front;
+  const narrow = viewport.clientWidth < 600;
+  let fov = 54;
+  if (front) {
+    const pack = active.filter(racer => front.position.z - racer.position.z < 65);
+    let x = 0, y = 0;
+    for (const racer of pack) { x += racer.position.x; y += racer.position.y; }
+    x /= pack.length; y /= pack.length;
+    const z = front.position.z;
+    desiredTarget.set(x, y, z + 10);
+    if (impactFocusLife > 0 && impactFocus.z > z - 20) desiredTarget.lerp(impactFocus, .23);
+    desiredPosition.set(x + (narrow ? 5 : 12), y + 11, z - (narrow ? 58 : 39));
+    fov = 58 + Math.min(8, front.velocity.z / 22);
+    $('focus-name').textContent = front.name; $('focus-distance').textContent = `${Math.round(front.distance)} m`;
+    $('focus-color').style.background = hex(front.color);
+    $('speed-value').textContent = String(Math.round(Math.hypot(front.velocity.x, front.velocity.y, front.velocity.z)));
+    $('flight-fill').style.transform = `scaleX(${Math.min(1, z / FINISH_DISTANCE)})`;
+    $('sector-label').textContent = `SECTOR ${String(1 + Math.floor(z / 150)).padStart(2, '0')}`;
+  } else if (!struck) {
+    const windup = phase === 'windup' ? Math.min(1, phaseTime / 1.35) : phase === 'swing' ? 1 : 0;
+    desiredPosition.set(16 - windup * 5, 11 - windup * 4, (narrow ? -43 : -30) + windup * 5);
+    desiredTarget.set(3, .8, 4); fov = 54 - windup * 4;
+  } else {
+    desiredPosition.copy(cameraPosition); desiredTarget.copy(cameraTarget);
+  }
+  const ease = 1 - Math.exp(-dt * (struck ? 3.3 : 2.1));
+  cameraPosition.lerp(desiredPosition, ease); cameraTarget.lerp(desiredTarget, ease);
+  camera.position.copy(cameraPosition);
+  if (shake > .005) {
+    camera.position.x += Math.sin(showTime * 117) * shake;
+    camera.position.y += Math.sin(showTime * 143 + 1) * shake * .55;
+    camera.position.z += Math.cos(showTime * 97) * shake * .22;
+  }
+  camera.lookAt(cameraTarget); camera.fov = THREE.MathUtils.lerp(camera.fov, fov, 1 - Math.exp(-dt * 4)); camera.updateProjectionMatrix();
+  updateTarget(front);
+}
+function updateTarget(racer: Racer | null) {
+  const reticle = $('target-reticle');
+  if (!racer || !['flight', 'followthrough'].includes(phase)) { reticle.classList.add('hidden'); return; }
+  // A short collision-course preview creates anticipation; it never steers a ball.
+  const horizon = .7, p = racer.position, v = racer.velocity;
+  const ahead = { x: p.x + v.x * horizon, y: p.y + v.y * horizon - 1.2 * horizon * horizon, z: p.z + v.z * horizon };
+  let closest: Planet | null = null, earliest = 1;
+  for (const planet of arena.planets) {
+    if (planet.destroyed || planet.position.z < p.z + 3 || planet.position.z > ahead.z + planet.radius) continue;
+    const t = contactTime(p, ahead, planet.position, planet.radius + .65);
+    if (t !== null && t < earliest) { earliest = t; closest = planet; }
+  }
+  if (!closest) { reticle.classList.add('hidden'); return; }
+  camera.updateMatrixWorld(); projection.copy(closest.position).project(camera);
+  if (Math.abs(projection.x) > .83 || Math.abs(projection.y) > .65 || projection.z > 1) { reticle.classList.add('hidden'); return; }
+  reticle.style.left = `${(projection.x * .5 + .5) * 100}%`; reticle.style.top = `${(-projection.y * .5 + .5) * 100}%`;
+  $('target-name').textContent = closest.label; reticle.classList.remove('hidden');
+}
+function updatePresentation(dt: number) {
+  showTime += dt; impactCooldown = Math.max(0, impactCooldown - dt); leaderHold = Math.max(0, leaderHold - dt);
+  impactFocusLife = Math.max(0, impactFocusLife - dt); shake *= Math.exp(-dt * 13); flash *= Math.exp(-dt * 19);
+  $('impact-flash').style.opacity = String(reducedMotion ? flash * .18 : flash);
+  $('speed-lines').style.opacity = struck && !['settle', 'results'].includes(phase) && !reducedMotion ? String(Math.min(.55, .13 + slowMotion * .5)) : '0';
+  if (cueLife > 0) { cueLife -= dt; if (cueLife <= 0) $('scene-cue').classList.add('hidden'); }
+  if (impactLife > 0) { impactLife -= dt; if (impactLife <= 0) $('impact-callout').classList.add('hidden'); }
+  effects.update(dt);
+  for (let i = 0; i < arena.deckRings.length; i++) {
+    const ring = arena.deckRings[i]; ring.rotation.z += dt * .1 * (i % 2 ? 1 : -1);
+    (ring.material as THREE.MeshBasicMaterial).opacity = .5 + Math.sin(showTime * 2 + i) * .15 + (phase === 'windup' ? .25 : 0);
+  }
+  for (const planet of arena.planets) if (!planet.destroyed && planet.mesh.visible) planet.mesh.rotation.y += dt * planet.spin;
+  uiClock += dt;
+  if (uiClock > .12) {
+    uiClock = 0; updateLeaderboard();
+    $('race-time').textContent = `${Math.floor(elapsed / 60).toString().padStart(2, '0')}:${(elapsed % 60).toFixed(1).padStart(4, '0')}`;
+  }
+}
+function showWinner() {
+  setPhase('results'); sound.winner(); updateLeaderboard();
+  const sorted = [...racers].sort(compareFlights), winner = sorted[0];
+  $('scene-cue').classList.add('hidden'); $('impact-callout').classList.add('hidden');
+  $('winner-name').textContent = winner.name; $('winner-planets').textContent = String(winner.planets);
+  $('winner-distance').textContent = `${Math.round(winner.distance)} m`; $('winner-roster').textContent = String(racers.length);
+  $('winner-podium').replaceChildren();
+  sorted.slice(0, 3).forEach((racer, i) => {
+    const row = document.createElement('li'), rank = document.createElement('span'), name = document.createElement('span'), score = document.createElement('b');
+    rank.textContent = `0${i + 1}`; name.textContent = racer.name; score.textContent = `${racer.planets} ✦ · ${Math.round(racer.distance)} m`;
+    row.append(rank, name, score); $('winner-podium').append(row);
+  });
+  $('winner-banner').classList.remove('hidden'); status('GALACTIC CHAMPION');
+  feed('CHAMPION', `${winner.name} · ${winner.planets}개 파괴`, '#ffd48b');
+  projection.copy(cameraTarget); effects.burst(projection, winner.color, 3, true);
+  $('winner-replay').focus({ preventScroll: true });
+}
+function clearRound() {
+  sound.stop(); effects.clear(); arena.resetWorlds();
+  phaseTime = showTime = elapsed = accumulator = 0; struck = false; totalDestroyed = hitStop = slowMotion = shake = flash = 0;
+  impactCooldown = cueLife = impactLife = uiClock = cullClock = impactFocusLife = leaderHold = chargeParticles = 0;
+  lastTick = lastLeader = -1;
+  $('countdown').classList.add('hidden'); $('scene-cue').classList.add('hidden'); $('impact-callout').classList.add('hidden'); $('winner-banner').classList.add('hidden'); $('target-reticle').classList.add('hidden');
+  $('event-feed').replaceChildren(); $('race-time').textContent = '00:00.0'; $('remaining-count').textContent = '00';
+  $('charge-value').textContent = '00'; $('charge-fill').style.transform = 'scaleX(0)'; $('flight-fill').style.transform = 'scaleX(0)';
+  $('focus-name').textContent = '발사 대기'; $('focus-distance').textContent = '0 m'; $('leader-name').textContent = '—'; $('leader-score').textContent = '0 ✦';
+  $('speed-value').textContent = '0'; $('sector-label').textContent = 'SECTOR 01'; $('impact-flash').style.opacity = '0'; $('speed-lines').style.opacity = '0';
+  arena.bat.position.set(-1, 1, -1.15); arena.bat.rotation.set(0, 0, -.3); arena.batPower.emissiveIntensity = 1.5;
+  cameraPosition.set(16, 11, viewport.clientWidth < 600 ? -43 : -30); cameraTarget.set(3, 1, 6); camera.fov = 54;
+}
+function startGame() {
+  if (!ready || !['idle', 'results'].includes(phase) || parseNames(namesInput.value).length < 2) return;
+  sound.open(); clearRound(); createRoster(); namesInput.disabled = true;
+  document.body.classList.add('race-mode'); setPhase('countdown');
+  startButton.disabled = true; resetButton.disabled = false; $('countdown').classList.remove('hidden');
+  status('LAUNCH SEQUENCE'); feed('LAUNCH SEQUENCE', `${racers.length}명의 도전자, 준비 완료.`); resize();
+}
+function resetGame() {
+  if (!ready) return;
+  clearRound(); setPhase('idle'); namesInput.disabled = false; document.body.classList.remove('race-mode');
+  resetButton.disabled = true; updateCount(); status('SYSTEM READY'); resize(); namesInput.focus({ preventScroll: true });
+}
+function resize() {
+  if (!renderer) return;
+  const { width, height } = viewport.getBoundingClientRect();
+  const w = Math.max(1, Math.round(width)), h = Math.max(1, Math.round(height));
+  camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false); composer.setSize(w, h);
+}
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), .05);
+  if (document.hidden) return;
+  updatePhase(dt);
+  let simulationDt = dt;
+  if (hitStop > 0) { hitStop = Math.max(0, hitStop - dt); simulationDt = 0; }
+  else if (slowMotion > 0) { slowMotion = Math.max(0, slowMotion - dt); simulationDt *= .38 + .62 * (1 - slowMotion / .26); }
+  updateFlight(simulationDt); drawRacers(simulationDt); updateCamera(dt); updatePresentation(dt);
+  cullClock += dt;
+  if (cullClock > .1) {
+    cullClock = 0; camera.updateMatrixWorld(); viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(viewProjection);
+    for (const planet of arena.planets) {
+      if (planet.destroyed) continue;
+      cullSphere.center.copy(planet.position); cullSphere.radius = planet.radius * 2.1;
+      planet.mesh.visible = camera.position.distanceToSquared(cullSphere.center) < 470 * 470 && frustum.intersectsSphere(cullSphere);
+    }
+  }
+  composer.render();
+}
+function boot() {
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.4)); renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12; viewport.append(renderer.domElement);
+  composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
+  const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), .48, .55, .95); composer.addPass(bloom); composer.addPass(new OutputPass());
+  scene.add(new THREE.HemisphereLight(0xb8dcff, 0x16142e, 2.4));
+  const key = new THREE.DirectionalLight(0xffeed4, 3.4); key.position.set(-18, 28, -20); scene.add(key);
+  const rim = new THREE.DirectionalLight(0x728aff, 2.5); rim.position.set(25, 10, 15); scene.add(rim);
+  arena = new Arena(scene); effects = new Effects(scene, arena.glow);
+  namesInput.addEventListener('input', updateCount); startButton.addEventListener('click', startGame); resetButton.addEventListener('click', resetGame);
+  $('winner-replay').addEventListener('click', startGame); $('winner-close').addEventListener('click', resetGame);
+  $('winner-banner').addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); resetGame(); }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      (document.activeElement === $('winner-replay') ? $('winner-close') : $('winner-replay')).focus();
+    }
+  });
+  window.addEventListener('resize', resize); new ResizeObserver(resize).observe(viewport);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) sound.stop(); clock.getDelta(); });
+  ready = true; setPhase('idle'); updateCount(); resize(); status('SYSTEM READY'); requestAnimationFrame(animate);
+}
+try { boot(); } catch (error) {
+  console.error('Cosmic Slugger initialization failed', error); status('3D ENGINE UNAVAILABLE');
+  $('validation').textContent = '3D 화면을 시작하지 못했어요. 브라우저의 하드웨어 가속을 확인한 뒤 새로고침해 주세요.';
+  $('validation').className = 'validation error';
+}
