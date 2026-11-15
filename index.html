@@ -11,6 +11,7 @@
     <div id="app">
       <header class="topbar">
         <a class="brand" href="./" aria-label="Cosmic Slugger 홈"><span>Boom <b>Planet</b></span></a>
+        <button id="open-guide" class="help-button" type="button" aria-haspopup="dialog"><span aria-hidden="true">?</span>게임 안내</button>
       </header>
       <main class="layout">
         <section class="stage-panel" aria-label="우주 경기장">
@@ -61,6 +62,30 @@
         </aside>
       </main>
     </div>
+    <dialog id="game-guide" class="game-guide" aria-labelledby="guide-title" aria-describedby="guide-description">
+      <div class="guide-shell">
+        <header class="guide-header"><span>게임 안내</span><button id="guide-skip" class="guide-skip" type="button">건너뛰기 <span aria-hidden="true">↗</span></button></header>
+        <div class="guide-content">
+          <div class="guide-visual" data-guide-scene="0" aria-hidden="true">
+            <div class="guide-roster"><span><i></i>가람<b>01</b></span><span><i></i>나래<b>02</b></span><span><i></i>도담<b>03</b></span></div>
+            <div class="guide-launch-line"><i></i><span>2–30명</span><i></i></div>
+          </div>
+          <div class="guide-visual" data-guide-scene="1" aria-hidden="true" hidden>
+            <svg class="guide-flight" viewBox="0 0 480 190" fill="none"><defs><linearGradient id="guide-trail"><stop stop-color="#7ce6ed" stop-opacity="0"/><stop offset="1" stop-color="#7ce6ed"/></linearGradient></defs><ellipse cx="340" cy="85" rx="75" ry="21" stroke="#edc891" stroke-opacity=".5" transform="rotate(-25 340 85)"/><circle cx="340" cy="85" r="39" fill="#b294d3" fill-opacity=".18" stroke="#bca1e3"/><path d="M306 68c22 8 45 5 66-2M303 87c26 7 51 5 75-3M309 107c18 3 37 1 56-4" stroke="#bca1e3" stroke-opacity=".35"/><path d="M45 147c95 2 132-21 216-56" stroke="url(#guide-trail)" stroke-width="4" stroke-linecap="round"/><path d="M45 162c95 2 132-21 200-49" stroke="url(#guide-trail)" stroke-opacity=".25"/><circle cx="262" cy="91" r="12" fill="#7ce6ed" fill-opacity=".12"/><circle cx="262" cy="91" r="7" fill="#a7f4f0"/><path d="m392 27 7 3-3 8-8-3 4-8ZM408 73l8 6-6 8-9-7 7-7ZM385 136l8-2 3 9-9 2-2-9Z" fill="#edc891" fill-opacity=".6"/><circle cx="101" cy="54" r="2" fill="#fff" fill-opacity=".5"/><circle cx="205" cy="30" r="1.5" fill="#fff" fill-opacity=".3"/><circle cx="438" cy="139" r="1.5" fill="#fff" fill-opacity=".4"/></svg>
+            <div class="guide-flight-labels"><span>발사</span><i>→</i><span>행성 파괴</span><i>→</i><span>결과</span></div>
+          </div>
+          <div class="guide-visual guide-scoring" data-guide-scene="2" aria-hidden="true" hidden>
+            <div class="guide-score-parts"><div><span>행성 1개</span><strong><b data-guide-planet-points>150</b><small>점</small></strong></div><i>+</i><div><span>거리 1m</span><strong>1<small>점</small></strong></div></div>
+            <div class="guide-score-example">행성 4개 + 800m <span>→</span> <b id="guide-example-score">1,400점</b></div>
+          </div>
+          <div class="guide-copy" aria-live="polite" aria-atomic="true"><span id="guide-step" class="guide-step">01 · 참가자</span><h2 id="guide-title">이름만 입력하면 준비 끝</h2><p id="guide-description">2–30명의 이름을 한 줄에 한 명씩 입력하세요. 각자 고유한 색의 공을 받습니다.</p><p id="guide-detail" class="guide-detail">시작을 누르면 한 번의 스윙으로 모든 공이 함께 출발해요.</p></div>
+        </div>
+        <footer class="guide-footer">
+          <div class="guide-navigation"><div class="guide-dots" aria-hidden="true"><i class="is-current"></i><i></i><i></i></div><div class="guide-actions"><button id="guide-back" class="guide-back" type="button" disabled>이전</button><button id="guide-next" class="primary-button" type="button">다음 <span aria-hidden="true">→</span></button></div></div>
+          <label class="guide-remember"><input id="guide-remember" type="checkbox">다음부터 보지 않기</label>
+        </footer>
+      </div>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

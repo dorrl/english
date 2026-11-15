@@ -19,6 +19,7 @@ Vite serves the game at `/english/`. `npm run preview` previews the production b
 - Contact triggers a short hit-stop, synchronized swing whoosh and bass/crack, camera recoil, a glowing core, debris, and shock rings. A short bounded ribbon traces the barrel; the launch camera briefly holds the follow-through before tracking a ball.
 - Automatic flight framing cycles between active students at seeded random intervals of 1.05–3.64 seconds, favoring quicker 1–2 second holds, independent of rank. The previous 3.64-second maximum is retained. Reduced-motion holds use 1.8–4.3 seconds. Camera angles are slightly closer and higher; transitions remain smooth. Colored trails, readable focus labels, and smoothly animated ranking changes keep the race visible. Announcements and decorative text are omitted.
 - Off-screen planet impacts produce a quiet tremor and softer sound, without global flash, hit-stop, or camera redirection. Visible impacts retain full feedback.
+- Audio separates a warm countdown, smooth rising charge, accelerating air sweep, layered bat crack/body, size-dependent planetary crumble and a soft winner chord. Impacts pan gently with their screen position; off-screen hits remain centered and quiet. Separate collision rate limits and six impact voices prevent a chain reaction from masking launch/reveal cues. Cached mono buffers, a 32 Hz high-pass and gentle master compression keep playback bounded; reset/tab hiding releases all voices.
 - A 2,600 m map scatters 1,200 planets across a roughly 170 m wide field. Every round changes their positions, radii, colors, and rings using its seed. Free scatter and loose pockets replace regular rows; each sector includes a guaranteed lower-field population just above the -115 m disappearance floor. A spatial hash enforces surface clearance. Small, medium, and large planets have radii from 1.6 to 6.8; large planets receive fewer rings to keep the flight readable. Existing meshes and shared surfaces are reused on reset.
 - The cosmic bat uses a beveled lathed metal body, studio reflections, wrapped leather grip, segmented armor, exposed energy slots, an impact collar, and a vented end cap with individual bolts. Charge particles follow its moving sweet spot; the bat and every ball align on the impact plane at launch.
 - Eight animated solar stars, sixteen satellites with solar panels and dishes, and four ring-shaped space stations provide visual landmarks around the flight field. These are scenery; planet scoring remains unchanged. Model parts and materials are reused, and off-screen landmarks are culled.
@@ -37,12 +38,14 @@ Vite serves the game at `/english/`. `npm run preview` previews the production b
 - `src/bat.ts`: detailed procedural bat geometry, reflective finishes, grip texture, energy core, and reusable swing trail.
 - `src/bat-motion.ts`: shared motion timing and continuous bat pose curves, including the exact contact pose.
 - `src/scenery.ts` and `src/scenery-layout.ts`: generated solar-star shaders, satellite/space-station models, bounded placement, animation, and culling.
-- `src/effects.ts`: bounded reusable effects and synthesized audio.
+- `src/effects.ts`: bounded reusable visual effects.
+- `src/audio.ts` and `src/sound-design.ts`: cached procedural audio, impact budget, panning, mixing and source cleanup.
 - `src/simulation.ts`: deterministic 120 Hz ballistic flight, swept collision detection, and ranking. Presentation time does not change scores.
 - `src/presentation.ts`: on-screen/off-screen impact feedback strengths.
 - `src/ranking.ts`: continuous ranking animation, including updates received during a move.
 - `src/style.css`: responsive arena and scoreboard, with a separate bottom scoreboard on small screens.
 - `scripts/simulation.test.mjs`: bat contact direction, phase continuity and deck clearance, seeded planet placement and size variety, lower-field coverage and lateral spread, scenery bounds, camera rotation, field clearance and length, score calculation, mixed seeded launch variation, curve forces, off-screen feedback, input limits, one launch per student, collision tunneling, contested planets, ranking, and full 2/30-student rounds on randomized maps at different frame rates and with pauses.
+- `scripts/audio.test.mjs`: cue levels and endpoints at common sample rates, transient/charge balance, pitch/pan bounds, near/far priority, dense collision playback, cached buffers and complete reset cleanup.
 
 Every planet awards credit once, to the earliest contact. Names are trimmed, blank lines ignored, and the first thirty used. Student names are rendered as literal text.
 

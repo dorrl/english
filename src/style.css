@@ -38,6 +38,35 @@ button:focus-visible, a:focus-visible {
   align-items: center;
   padding: 0 clamp(20px, 3vw, 52px);
   border-bottom: 1px solid var(--line);
+  justify-content: space-between;
+}
+.help-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #bdd9ff20;
+  border-radius: 8px;
+  background: #c1d9f205;
+  color: #b7c9d7;
+  font-size: 12px;
+  transition: color .2s, background .2s;
+}
+.help-button > span {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid #a0bac56b;
+  border-radius: 50%;
+  font: 11px Arial, sans-serif;
+}
+.help-button:hover {
+  color: #f0dbb6;
+  background: #edc8910a;
+}
+body.race-mode .help-button {
+  display: none;
 }
 .brand {
   display: flex;
@@ -1197,6 +1226,331 @@ body.race-mode .leaderboard {
   .winner-total b {
     font-size: 28px;
   }
+}
+/* A short, optional introduction lives above the arena in the native top layer. */
+.game-guide {
+  width: min(580px, calc(100% - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  margin: auto;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #697476 transparent;
+  color: #edf4fb;
+  border: 1px solid #d8c6a44d;
+  border-radius: 24px;
+  background: radial-gradient(ellipse at 20% 0, #718f9925, transparent 65%), linear-gradient(145deg, #172432, #0b1421 75%);
+  box-shadow: 0 1px 0 #ffffff0d inset, 0 32px 120px #0009;
+}
+.game-guide[open] {
+  animation: guideEnter .35s cubic-bezier(.16, 1, .3, 1) both;
+}
+.game-guide::backdrop {
+  background: #030914c4;
+  backdrop-filter: blur(9px);
+}
+.guide-shell {
+  padding: 25px 32px 22px;
+}
+.guide-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #a4bacb;
+  font-size: 12px;
+}
+.guide-skip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 0 8px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #b5c6d1;
+  font-size: 12px;
+}
+.guide-skip:hover {
+  color: #ffe1ac;
+}
+.guide-skip > span {
+  font-size: 17px;
+  color: #d3bb95;
+}
+.guide-visual {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 230px;
+  margin: 12px 0 22px;
+  border: 1px solid #bed5e512;
+  border-radius: 16px;
+  background: radial-gradient(ellipse at 50% 50%, #45616b28, transparent 72%), #060e194d;
+  overflow: hidden;
+}
+.guide-visual[hidden] {
+  display: none;
+}
+.guide-roster {
+  width: min(255px, 75%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 auto;
+  transform: rotate(-3deg);
+}
+.guide-roster > span {
+  --sample-ball: #7ce6ed;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 41px;
+  padding: 0 17px;
+  border: 1px solid #a6c5db24;
+  border-radius: 9px;
+  background: linear-gradient(100deg, #243b49, #172636);
+  box-shadow: 0 4px 14px #0002;
+  color: #e4eef4;
+  font-size: 14px;
+}
+.guide-roster > span:nth-child(2) {
+  --sample-ball: #c1a0f0;
+  transform: translateX(12px);
+}
+.guide-roster > span:nth-child(3) {
+  --sample-ball: #edc891;
+}
+.guide-roster i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 25%, #fff, var(--sample-ball) 50%, #0006);
+  box-shadow: 0 0 13px color-mix(in srgb, var(--sample-ball) 35%, transparent);
+}
+.guide-roster b {
+  margin-left: auto;
+  font: 10px ui-monospace, monospace;
+  color: #859cab;
+}
+.guide-launch-line {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 150px;
+  margin: 23px auto 0;
+  color: #9bb1be;
+  font-size: 10px;
+}
+.guide-launch-line i {
+  flex: 1;
+  height: 1px;
+  background: #a9c8dc24;
+}
+.guide-flight {
+  width: 100%;
+  min-height: 0;
+  height: 180px;
+  display: block;
+}
+.guide-flight-labels {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 23px;
+  padding: 0 12px 20px;
+  font-size: 11px;
+  color: #b9cdd9;
+}
+.guide-flight-labels i {
+  font-style: normal;
+  color: #6d8d9e;
+}
+.guide-score-parts {
+  display: grid;
+  grid-template-columns: 1fr 30px 1fr;
+  align-items: center;
+  padding: 0 28px;
+  text-align: center;
+}
+.guide-score-parts > div > span {
+  font-size: 12px;
+  color: #acbdc9;
+}
+.guide-score-parts strong {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 46px;
+  font-weight: 500;
+  letter-spacing: -.06em;
+  color: #f3d6a7;
+}
+.guide-score-parts b {
+  font-weight: inherit;
+}
+.guide-score-parts small {
+  font-size: 12px;
+  letter-spacing: normal;
+  color: #a58f70;
+}
+.guide-score-parts > i {
+  font-style: normal;
+  font-size: 26px;
+  color: #708a9c;
+}
+.guide-score-example {
+  margin-top: 25px;
+  padding-top: 18px;
+  border-top: 1px solid #bdd9ff12;
+  text-align: center;
+  font-size: 12px;
+  color: #96afbf;
+}
+.guide-score-example > span {
+  margin: 0 10px;
+  color: #718e9d;
+}
+.guide-score-example b {
+  font-size: 16px;
+  font-weight: 600;
+  color: #d5e8ec;
+}
+.guide-copy {
+  min-height: 170px;
+}
+.guide-step {
+  color: #caaf87;
+  font-size: 11px;
+  letter-spacing: .04em;
+}
+.guide-copy h2 {
+  margin: 10px 0 13px;
+  color: #f1f3f1;
+  font-size: clamp(23px, 4.8vw, 30px);
+  line-height: 1.3;
+  letter-spacing: -.055em;
+}
+.guide-copy p {
+  margin: 0;
+  color: #c0ced8;
+  font-size: 14px;
+  line-height: 1.8;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.guide-copy .guide-detail {
+  margin-top: 12px;
+  color: #8fa6b8;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.guide-footer {
+  margin-top: 18px;
+  padding-top: 19px;
+  border-top: 1px solid #bdd9ff1a;
+}
+.guide-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.guide-dots {
+  display: flex;
+  gap: 6px;
+}
+.guide-dots i {
+  width: 6px;
+  height: 6px;
+  background: #5f7b8a;
+  border-radius: 5px;
+  transition: background .2s, width .2s;
+}
+.guide-dots .is-current {
+  width: 23px;
+  background: var(--gold);
+}
+.guide-actions {
+  display: flex;
+  gap: 10px;
+}
+.guide-actions .primary-button {
+  width: 137px;
+  min-height: 44px;
+}
+.guide-back {
+  padding: 0 16px;
+  background: transparent;
+  border: 1px solid #bed5e51f;
+  border-radius: 7px;
+  color: #bdcdd8;
+  font-size: 12px;
+}
+.guide-back:disabled {
+  visibility: hidden;
+}
+.guide-back:hover {
+  background: #bed5e508;
+}
+.guide-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 25px;
+  margin-top: 14px;
+  color: #95aabb;
+  font-size: 11px;
+  cursor: pointer;
+}
+.guide-remember input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--gold);
+}
+.guide-remember input:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+@keyframes guideEnter {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (max-width: 480px), (max-height: 720px) {
+  .game-guide { border-radius: 18px; }
+  .guide-shell { padding: 18px 22px; }
+  .guide-visual { height: 183px; margin: 10px 0 18px; }
+  .guide-roster { gap: 6px; }
+  .guide-roster > span { height: 33px; font-size: 12px; }
+  .guide-launch-line { margin-top: 17px; }
+  .guide-flight { height: 142px; }
+  .guide-flight-labels { gap: 15px; padding-bottom: 15px; }
+  .guide-score-parts { padding: 0 14px; }
+  .guide-score-parts strong { font-size: 37px; margin-top: 7px; }
+  .guide-score-example { margin-top: 15px; padding-top: 14px; font-size: 10px; }
+  .guide-score-example > span { margin: 0 5px; }
+  .guide-score-example b { font-size: 14px; }
+  .guide-copy { min-height: 180px; }
+  .guide-copy p { font-size: 13px; }
+  .guide-footer { margin-top: 10px; padding-top: 15px; }
+  .guide-actions { gap: 7px; }
+  .guide-actions .primary-button { width: 118px; }
+  .guide-back { padding: 0 11px; }
+}
+@media (max-height: 540px) {
+  .guide-visual { height: 135px; }
+  .guide-roster > span { height: 27px; }
+  .guide-launch-line { display: none; }
+  .guide-flight { height: 105px; }
+  .guide-flight-labels { padding-bottom: 9px; }
+  .guide-score-parts strong { font-size: 30px; }
+  .guide-score-example { margin-top: 9px; padding-top: 9px; }
+  .guide-copy { min-height: 0; }
 }
 /* Keep the score and replay controls visible in shorter arena panels. */
 .viewport-wrap {
