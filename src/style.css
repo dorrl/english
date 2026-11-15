@@ -1250,6 +1250,9 @@ body.race-mode .leaderboard {
   background: #030914c4;
   backdrop-filter: blur(9px);
 }
+body:has(.game-guide[open]) {
+  overflow: hidden;
+}
 .guide-shell {
   padding: 25px 32px 22px;
 }

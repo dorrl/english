@@ -13,6 +13,8 @@ npm run build
 
 Vite serves the game at `/english/`. `npm run preview` previews the production build. The game needs WebGL; sound starts with the teacher's start/replay click. Everything runs in the browser without external assets, APIs, accounts, or a server runtime.
 
+On entry, an optional three-step guide explains name entry, the automatic show, and scoring with a worked example. Skip or Escape closes it at any step; the topbar's game-guide button reopens it while idle. “Do not show again” is opt-in and stored only in this browser. The native modal confines keyboard focus and returns it on close; storage restrictions do not prevent dismissal.
+
 ## Show structure
 
 - A three-beat countdown leads into a loaded backswing, a brief brace, and an accelerating forward sweep driven from the grip pivot. The bat reaches the exact launch plane before hit-stop, then continues into a slowing, slightly raised follow-through and settles. Pose and velocity curves stay continuous between phases.
@@ -33,6 +35,7 @@ Vite serves the game at `/english/`. `npm run preview` previews the production b
 ## Source structure
 
 - `src/main.ts`: round state machine, camera, rendering, and UI.
+- `src/tutorial.ts`: skippable entry guide, score example, keyboard dismissal and optional local preference.
 - `src/camera-director.ts`: rank-independent subject rotation and camera shot timing.
 - `src/arena.ts`: generated galaxy, shared surfaces, launch platform, bat, and balls.
 - `src/bat.ts`: detailed procedural bat geometry, reflective finishes, grip texture, energy core, and reusable swing trail.
