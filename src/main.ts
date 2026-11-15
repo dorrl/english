@@ -5,7 +5,9 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Arena, colors, hex } from './arena';
 import type { Planet } from './arena';
-import { Effects, Sound } from './effects';
+import { Effects } from './effects';
+import { Sound } from './audio';
+import { initTutorial } from './tutorial';
 import { impactFeedback } from './presentation';
 import { RankingMotion } from './ranking';
 import { CameraDirector } from './camera-director';
@@ -48,6 +50,7 @@ const clock = new THREE.Clock();
 
 function setPhase(next: Phase) {
   phase = next; phaseTime = 0; document.body.dataset.phase = next;
+  $<HTMLButtonElement>('open-guide').disabled = next !== 'idle';
 }
 function makeTag(name: string, color: number) {
   const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 112;
@@ -147,7 +150,9 @@ function smashPlanet(planet: Planet) {
   const onScreen = frustum.intersectsSphere(cullSphere);
   const feedback = impactFeedback(onScreen, reducedMotion);
   planet.mesh.visible = false; totalDestroyed++;
-  effects.burst(planet.position, planet.color, planet.radius); sound.impact(false, feedback.volume);
+  projection.copy(planet.position).project(camera);
+  effects.burst(planet.position, planet.color, planet.radius);
+  sound.impact(false, feedback.volume, planet.radius, onScreen ? projection.x * .7 : 0);
   if (onScreen && impactCooldown <= 0) { hitStop = feedback.hitStop; slowMotion = feedback.slowMotion; impactCooldown = .22; }
   shake = Math.max(shake, feedback.shake); flash = Math.max(flash, feedback.flash);
   const worldPosition = new THREE.Vector3().copy(planet.position);
@@ -408,3 +413,4 @@ try { boot(); } catch (error) {
   $('validation').textContent = '3D 화면을 시작하지 못했어요. 브라우저의 하드웨어 가속을 확인한 뒤 새로고침해 주세요.';
   $('validation').className = 'validation error';
 }
+initTutorial(PLANET_POINTS);
