@@ -1,0 +1,172 @@
+/* The desktop feed overlays the arena; smaller devices have a reserved rail. */
+.stage-panel { position: relative; }
+.event-dock { min-width: 0; }
+
+@media (max-width: 1366px) {
+  button { touch-action: manipulation; }
+  .help-button, .secondary-button, .guide-skip, .guide-back, .result-reset { min-height: 44px; }
+  textarea { font-size: 16px; } /* Avoid automatic input zoom on tablets. */
+  .topbar, body.race-mode .topbar {
+    height: 52px;
+    padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right));
+  }
+  .layout { padding: 14px; gap: 12px; }
+  .event-dock { display: none; }
+  body.race-mode .stage-panel {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) 66px;
+    gap: 8px;
+    min-width: 0;
+  }
+  body.race-mode .event-dock {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid #bdd9ff1c;
+    border-radius: 10px;
+    background: linear-gradient(100deg, #122333, #0b1521);
+  }
+  body.race-mode .event-feed {
+    position: static;
+    width: 100%;
+    gap: 0;
+    min-width: 0;
+  }
+  .event-clip, .event-card { border-radius: 9px; }
+  .event-card {
+    gap: 10px;
+    padding: 9px 12px 11px;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+  .event-emblem { width: 29px; height: 29px; font-size: 22px; }
+  .event-emblem:after { display: none; }
+  .event-card:before { top: 10px; bottom: 10px; }
+  .event-body { display: flex; align-items: center; gap: 12px; }
+  .event-heading { flex: 1; min-width: 0; flex-wrap: wrap; gap: 3px 8px; }
+  .event-heading strong { flex: 1 1 100%; font-size: 12px; }
+  .event-heading > span { font-size: 10px; }
+  .event-reward { flex-shrink: 0; display: block; margin: 0; text-align: right; }
+  .event-reward b { font-size: 20px; }
+  .event-reward small { display: block; margin-top: 3px; font-size: 10px; }
+  .event-feed .is-system .event-reward small { display: none; }
+  .event-life { left: 12px; right: 12px; height: 2px; }
+  .race-hud { top: 16px; left: 18px; gap: 18px; }
+  .hud-chip + .hud-chip { padding-left: 18px; }
+  .hud-label { font-size: 10px; margin-bottom: 5px; }
+  .hud-chip strong { font-size: 19px; }
+  .flight-telemetry { bottom: 34px; left: 18px; }
+  .flight-telemetry strong { max-width: 180px; font-size: 18px; }
+  .flight-progress { left: 18px; right: 18px; bottom: 16px; }
+  .power-meter { bottom: 40px; right: 18px; width: 60px; }
+  .control-panel { padding: 16px; }
+  body.race-mode .control-panel { padding: 16px 12px 12px; border-radius: 12px; }
+  body.race-mode .leaderboard { min-height: 0; overscroll-behavior: contain; }
+  body.race-mode .leaderboard li {
+    grid-template-columns: 27px minmax(0, 1fr) auto;
+    min-height: 62px;
+    padding: 10px 9px;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  body.race-mode .rank { width: 27px; height: 29px; font-size: 11px; }
+  body.race-mode .racer-name { font-size: 13px; }
+  body.race-mode .racer-details { gap: 6px; }
+  body.race-mode .racer-stats { padding-left: 15px; font-size: 10px; }
+  body.race-mode .racer-score b { font-size: 20px; }
+  body.race-mode .score-track { left: 45px; }
+  body.race-mode #reset-race { min-height: 44px; margin-top: 12px; flex-shrink: 0; }
+  .result-actions button { min-height: 44px; }
+}
+
+/* Tablet landscape: a tall arena and a touch-sized, independently scrolling board. */
+@media (min-width: 600px) and (max-width: 1366px) and (orientation: landscape) {
+  .layout { grid-template-columns: minmax(0, 1fr) 264px; }
+  .viewport-wrap { height: max(380px, calc(100svh - 82px)); min-height: 0; }
+  .leaderboard { max-height: 180px; }
+  body.race-mode .layout {
+    height: calc(100dvh - 52px);
+    grid-template-columns: minmax(0, 1fr) clamp(238px, 25vw, 286px);
+    grid-template-rows: minmax(0, 1fr);
+    padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    gap: 10px;
+  }
+  body.race-mode .panel-title { margin: 0 0 14px; }
+  body.race-mode .panel-title h2 { font-size: 17px; gap: 8px; }
+  body.race-mode .panel-title svg { display: block; }
+  body.race-mode .racer-score { flex-direction: column; align-items: flex-end; }
+  body.race-mode .racer-score small { display: block; }
+  body.race-mode .ranking-note { display: flex; font-size: 9px; }
+  body.race-mode #reset-race { position: static; width: 100%; }
+}
+
+/* Tablet portrait: full-width arena, notification rail, then a roomy live board. */
+@media (min-width: 600px) and (max-width: 1366px) and (orientation: portrait) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .viewport-wrap { height: clamp(280px, 38svh, 500px); min-height: 0; }
+  body:not(.race-mode) .control-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 22px;
+  }
+  body:not(.race-mode) .scoreboard-panel { border-top: 0; border-left: 1px solid var(--line); padding: 0 0 0 22px; margin: 0; }
+  body:not(.race-mode) .leaderboard { max-height: 320px; }
+  body.race-mode .layout {
+    height: calc(100dvh - 52px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) clamp(220px, 27dvh, 340px);
+    padding: 10px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    gap: 10px;
+  }
+  body.race-mode .control-panel { position: relative; padding: 12px 14px; }
+  body.race-mode .scoreboard-panel { flex: 1; min-height: 0; }
+  body.race-mode .panel-title { margin: 0 100px 8px 0; justify-content: flex-start; gap: 10px; }
+  body.race-mode .panel-title h2 { font-size: 16px; }
+  body.race-mode .panel-title svg, body.race-mode .completion-track, body.race-mode .ranking-note { display: none; }
+  body.race-mode .leaderboard { flex: 1; max-height: none; }
+  body.race-mode .leaderboard li { min-height: 54px; padding-block: 7px; }
+  body.race-mode .racer-score { flex-direction: row; align-items: baseline; }
+  body.race-mode .racer-score small { display: none; }
+  body.race-mode #reset-race { position: absolute; top: 5px; right: 14px; width: 90px; margin: 0; }
+}
+
+/* Phones keep the action clear: no notification cards over the flight. */
+@media (max-width: 599px) {
+  .topbar, body.race-mode .topbar { height: 48px; }
+  body.race-mode .layout {
+    height: calc(100dvh - 48px);
+    grid-template-rows: minmax(0, 1fr) 152px;
+    padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
+    gap: 6px;
+  }
+  body.race-mode .stage-panel { grid-template-rows: minmax(0, 1fr) 58px; gap: 5px; }
+  .event-card { padding: 7px 10px 9px; gap: 8px; }
+  .event-body { gap: 6px; }
+  .event-emblem { width: 25px; height: 25px; font-size: 19px; }
+  .event-heading strong { font-size: 11px; }
+  .event-heading > span { font-size: 9px; }
+  .event-reward b { font-size: 17px; }
+  .event-reward small { font-size: 9px; }
+  body.race-mode .control-panel { padding: 7px 9px; }
+  body.race-mode .panel-title { min-height: 44px; margin-bottom: 4px; }
+  body.race-mode .leaderboard li { min-height: 47px; padding: 6px 8px; }
+  body.race-mode .racer-details { gap: 4px; }
+  body.race-mode .racer-name { font-size: 12px; }
+  body.race-mode .racer-score b { font-size: 18px; }
+  body.race-mode #reset-race { min-height: 44px; top: 6px; right: 10px; margin: 0; }
+  .flight-telemetry { gap: 5px; left: 12px; }
+  .flight-telemetry strong { max-width: 115px; font-size: 15px; }
+  .flight-telemetry > span { font-size: 10px; }
+  .race-hud { left: 12px; top: 12px; gap: 12px; }
+  .hud-chip + .hud-chip { padding-left: 12px; }
+  .hud-chip strong { font-size: 16px; }
+  .power-meter { display: none; }
+}
+
+@media (max-width: 1366px) and (max-height: 500px) and (orientation: landscape) {
+  body.race-mode .topbar { display: none; }
+  body.race-mode .layout { height: 100dvh; grid-template-columns: minmax(0, 1fr) 220px; grid-template-rows: minmax(0, 1fr); }
+  body.race-mode .stage-panel { grid-template-rows: minmax(0, 1fr) 58px; }
+}

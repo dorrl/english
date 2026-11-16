@@ -17,14 +17,28 @@ export const EVENT_LIFETIME = 5.2;
 const EXIT_SECONDS = .38;
 type Notice = { color: number; icon: string; actor: string; title: string; value: string; detail: string; label: string; system?: boolean };
 
-// Three queued planet cards plus one priority round notice. Presentation time
-// controls card lifetimes; milestone eligibility uses the simulation clock.
+// Small screens show one compact card; desktop shows three plus a round notice.
+// Presentation time controls lifetimes; milestones use the simulation clock.
 export class EventFeed {
   private pending: Notice[] = [];
   private milestones = new Set<number>();
-  private visible: { node: HTMLLIElement; progress: HTMLElement; life: number; notice: Notice }[] = [];
+  private compact = false;
+  private visible: { node: HTMLLIElement; progress: HTMLElement; life: number; duration: number; notice: Notice }[] = [];
   constructor(private list: HTMLOListElement) {}
-  get readyForResults() { return !this.pending.length && this.visible.every(entry => entry.life <= EVENT_LIFETIME - 2.1); }
+  get readyForResults() { return !this.pending.length && this.visible.every(entry => entry.life <= entry.duration - 2.1); }
+  setCompact(compact: boolean) {
+    if (this.compact === compact) return;
+    this.compact = compact;
+    if (compact && this.visible.length > 1) {
+      const keep = this.visible.find(entry => entry.notice.system) || this.visible[0];
+      this.defer(this.visible.filter(entry => entry !== keep));
+    }
+  }
+  private defer(entries: typeof this.visible) {
+    this.pending.unshift(...entries.map(entry => entry.notice));
+    for (const entry of entries) entry.node.remove();
+    this.visible = this.visible.filter(entry => !entries.includes(entry));
+  }
   push(event: SpecialEvent) {
     const style = SPECIAL_STYLE[event.kind];
     this.pending.push({ ...style, actor: event.actor.name,
@@ -38,6 +52,7 @@ export class EventFeed {
     // A late frame can cross both milestones. Keep only the latest system card,
     // while preserving all student event cards and their remaining reading time.
     this.visible = this.visible.filter(entry => { if (!entry.notice.system) return true; entry.node.remove(); return false; });
+    if (this.compact) this.defer([...this.visible]);
     const value = `중력 ${stage}차 강화`, detail = stage === 1 ? '아래로 당기는 힘이 서서히 강해집니다' : '아래로 당기는 힘이 더 빠르게 강해집니다';
     this.show({ color: stage === 1 ? 0xffd078 : 0xffa56c, icon: '↓', actor: `${threshold}초 경과`, title: '전체 적용', value, detail, label: `${threshold}초 경과 · ${value} · ${detail}`, system: true });
     return true;
@@ -46,13 +61,13 @@ export class EventFeed {
     for (const entry of this.visible) {
       entry.life -= dt;
       entry.node.classList.toggle('is-leaving', entry.life <= EXIT_SECONDS);
-      entry.progress.style.transform = `scaleX(${Math.max(0, entry.life / EVENT_LIFETIME)})`;
+      entry.progress.style.transform = `scaleX(${Math.max(0, entry.life / entry.duration)})`;
     }
     this.visible = this.visible.filter(entry => {
       if (entry.life > 0) return true;
       entry.node.remove(); return false;
     });
-    while (this.pending.length && this.visible.filter(entry => !entry.notice.system).length < 3) this.show(this.pending.shift()!);
+    while (this.pending.length && (this.compact ? this.visible.length < 1 : this.visible.filter(entry => !entry.notice.system).length < 3)) this.show(this.pending.shift()!);
   }
   private show(notice: Notice) {
       const node = document.createElement('li'), clip = document.createElement('div'), card = document.createElement('article');
@@ -71,7 +86,8 @@ export class EventFeed {
       heading.append(actor, title); reward.append(value, detail); content.append(heading, reward);
       card.append(icon, content, track); clip.append(card); node.append(clip);
       if (notice.system) this.list.prepend(node); else this.list.append(node);
-      this.visible.push({ node, progress, life: EVENT_LIFETIME, notice });
+      const duration = this.compact ? 3.4 : EVENT_LIFETIME;
+      this.visible.push({ node, progress, life: duration, duration, notice });
   }
   clear() { this.pending.length = 0; this.visible.length = 0; this.milestones.clear(); this.list.replaceChildren(); }
 }
