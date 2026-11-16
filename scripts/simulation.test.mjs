@@ -7,7 +7,7 @@ const source = await readFile(new URL('../src/simulation.ts', import.meta.url), 
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const simulationUrl = 'data:text/javascript;base64,' + Buffer.from(compiled).toString('base64');
 const sim = await import(simulationUrl);
-const { STEP, FINISH_DISTANCE, compareFlights, contactTime, createFlight, createWorldLayout, distancePoints, launchFlight, parseNames, scoreFlight, stepFlights } = sim;
+const { STEP, FINISH_DISTANCE, WORLD_COUNT, WORLD_SECTORS, WORLD_HALF_WIDTH, additionalPoints, compareFlights, contactTime, createFlight, createWorldLayout, distancePoints, launchFlight, parseNames, scoreFlight, stepFlights } = sim;
 const presentationSource = await readFile(new URL('../src/presentation.ts', import.meta.url), 'utf8');
 const presentationCode = ts.transpileModule(presentationSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const { impactFeedback } = await import('data:text/javascript;base64,' + Buffer.from(presentationCode).toString('base64'));
@@ -68,8 +68,8 @@ test('planets span both sides and stay near the disappearance floor in every sec
   const worlds = createWorldLayout();
   assert.ok(Math.min(...worlds.map(w=>w.position.x)) < -75);
   assert.ok(Math.max(...worlds.map(w=>w.position.x)) > 75);
-  for (let sector=0;sector<8;sector++) {
-    const bottom = worlds.filter(w=>w.position.z>=sector*325&&w.position.z<(sector+1)*325&&w.position.y < -95);
+  for (let sector=0;sector<WORLD_SECTORS;sector++) {
+    const bottom = worlds.filter(w=>w.position.z>=sector*FINISH_DISTANCE/WORLD_SECTORS&&w.position.z<(sector+1)*FINISH_DISTANCE/WORLD_SECTORS&&w.position.y < -95);
     assert.ok(bottom.length >= 25);
     assert.ok(bottom.some(w=>w.position.y-w.radius < -110));
   }
@@ -83,10 +83,10 @@ test('scenery adds bounded, non-scoring landmarks across the whole map', () => {
   assert.ok(scenery.some(item=>item.position.z>2300));
 });
 
-test('camera visits different active balls before repeating, regardless of rank', () => {
+test('the zero-score opening visits different active balls before repeating', () => {
   const subjects = Array.from({ length: 30 }, (_, index) => ({ index, launched: true, done: false, planets: 30-index }));
   const director = new CameraDirector(42), visited = [];
-  for (let shot=0;shot<8;shot++) visited.push(director.update(4,subjects).index);
+  for (let shot=0;shot<8;shot++) visited.push(director.update(8,subjects).index);
   assert.equal(new Set(visited).size, 8);
   assert.ok(visited.some(index=>index>10));
   const current = subjects.find(subject=>subject.index===visited.at(-1)); current.done = true;
@@ -96,14 +96,14 @@ test('camera visits different active balls before repeating, regardless of rank'
 });
 test('two-player camera alternates and safely holds the remaining flight', () => {
   const subjects = [0,1].map(index=>({ index, launched:true, done:false })), director = new CameraDirector(7);
-  const first = director.update(0,subjects), second = director.update(4,subjects);
+  const first = director.update(0,subjects), second = director.update(8,subjects);
   assert.notEqual(first.index,second.index);
-  assert.equal(director.update(4,subjects).index,first.index);
+  assert.equal(director.update(8,subjects).index,first.index);
   first.done = true; assert.equal(director.update(0,subjects).index,second.index);
-  second.done = true; assert.equal(director.update(4,subjects),null);
+  second.done = true; assert.equal(director.update(8,subjects),null);
 });
 
-test('random camera holds favor quick changes and never exceed the previous maximum', () => {
+test('random camera holds give flights more time and keep a bounded seeded cadence', () => {
   const subjects = [0,1].map(index=>({index,launched:true,done:false}));
   function durations(seed, reducedMotion=false) {
     const director = new CameraDirector(seed,reducedMotion), holds=[];
@@ -116,25 +116,81 @@ test('random camera holds favor quick changes and never exceed the previous maxi
     return holds;
   }
   const holds = durations(42);
-  assert.ok(holds.every(duration=>duration>=1.05&&duration<=3.64+STEP));
-  assert.ok(holds.reduce((sum,duration)=>sum+duration,0)/holds.length < 2.3);
+  assert.ok(holds.every(duration=>duration>=2.6&&duration<=6.4+STEP));
+  const average = holds.reduce((sum,duration)=>sum+duration,0)/holds.length;
+  assert.ok(average > 3.5 && average < 5);
   assert.ok(new Set(holds.map(duration=>duration.toFixed(2))).size > 50);
   assert.notDeepEqual(holds,durations(43));
-  assert.ok(durations(42,true).every(duration=>duration>=1.8&&duration<=4.3+STEP));
+  assert.ok(durations(42,true).every(duration=>duration>=4&&duration<=7.5+STEP));
+});
+
+test('camera shortlist contains the highest-scoring active twenty percent and rotates among them', () => {
+  const subjects = Array.from({ length: 30 }, (_, index) => ({ index, launched: true, done: false, score: 10000-index*100 }));
+  const director = new CameraDirector(42), seen = new Set();
+  for (let shot=0;shot<12;shot++) seen.add(director.update(8,subjects).index);
+  assert.deepEqual([...director.waitingList].sort((a,b)=>a-b), [0,1,2,3,4,5]);
+  assert.equal(seen.size, 6); assert.ok([...seen].every(index=>index<6));
+});
+
+test('a brief scoring burst outside the leaders stays queued until the next camera cut', () => {
+  const subjects = Array.from({ length: 30 }, (_, index) => ({ index, launched: true, done: false, score: index<6?10000-index*100:0 }));
+  const director = new CameraDirector(42), first = director.update(0,subjects);
+  for (let i=0;i<10;i++) director.update(.05,subjects);
+  subjects[29].score = 1000;
+  assert.equal(director.update(.01,subjects).index,first.index,'score changes do not interrupt the current shot');
+  assert.ok(director.waitingList.includes(29));
+  let next = first;
+  for (let i=0;i<140&&director.shot===0;i++) next = director.update(.05,subjects);
+  assert.equal(next.index,29,'the waiting score burst gets the next shot');
+  assert.ok(director.waitingList.length<=12,'leader and hot-score pools remain bounded');
+  for (let i=0;i<240;i++) director.update(.05,subjects);
+  assert.ok(!director.waitingList.includes(29),'a stale burst eventually leaves the pool');
+});
+
+test('camera eligibility drops finished/unlaunched subjects and reset clears score momentum', () => {
+  const subjects = Array.from({ length: 10 }, (_, index) => ({ index, launched: true, done: false, score: 10000-index*100 }));
+  const director = new CameraDirector(8); director.update(0,subjects);
+  director.update(.5,subjects); subjects[9].score += 1000; director.update(.1,subjects);
+  assert.ok(director.waitingList.includes(9));
+  subjects[9].done = true; subjects[0].launched = false;
+  director.update(.1,subjects);
+  assert.ok(!director.waitingList.includes(9)&&!director.waitingList.includes(0));
+  subjects[9].done = false; subjects[9].score = 0;
+  director.reset(8); director.update(0,subjects);
+  assert.ok(!director.waitingList.includes(9));
+});
+
+test('a one-person leader shortlist still alternates shots in a two-student round', () => {
+  const subjects = [0,1].map(index=>({index,launched:true,done:false,score:index?10:1000})), director = new CameraDirector(7);
+  assert.equal(director.update(0,subjects).index,0);
+  assert.equal(director.update(8,subjects).index,1);
+  assert.equal(director.update(8,subjects).index,0);
+});
+
+test('score-aware camera observation never changes flights or their scores', () => {
+  const subjects = Array.from({length:30},(_,index)=>{
+    const f=createFlight(`학생 ${index}`,index); f.launched=true; f.distance=1000-index*10; return f;
+  });
+  const snapshot=structuredClone(subjects), director=new CameraDirector(9);
+  for(let i=0;i<300;i++) director.update(.05,subjects,scoreFlight);
+  assert.deepEqual(subjects,snapshot);
 });
 
 test('denser random planets preserve wide, clear flight corridors', () => {
   const worlds = createWorldLayout();
-  assert.ok(FINISH_DISTANCE >= 2500);
-  assert.equal(worlds.length, 1200);
-  assert.ok(Math.max(...worlds.map(w => w.position.z)) > 2500);
-  assert.ok(Math.max(...worlds.map(w => w.position.x)) - Math.min(...worlds.map(w => w.position.x)) > 90);
+  assert.equal(FINISH_DISTANCE, 10000);
+  assert.equal(worlds.length, WORLD_COUNT);
+  assert.ok(Math.max(...worlds.map(w => w.position.z)) > 9900);
+  assert.ok(Math.max(...worlds.map(w => w.position.x)) - Math.min(...worlds.map(w => w.position.x)) > 280);
+  const densityRatio = (WORLD_COUNT / (FINISH_DISTANCE * WORLD_HALF_WIDTH * 2)) / (2304 / (5000 * 172));
+  assert.ok(densityRatio > 1.08 && densityRatio < 1.12, 'about 10% denser even after widening and extending');
   assert.ok(Math.max(...worlds.map(w => w.position.y)) - Math.min(...worlds.map(w => w.position.y)) > 100);
   for (let i = 0; i < worlds.length; i++) {
     for (let j = i + 1; j < worlds.length; j++) {
       const a = worlds[i], b = worlds[j];
-      const distance = Math.hypot(a.position.x-b.position.x, a.position.y-b.position.y, a.position.z-b.position.z);
-      assert.ok(distance > a.radius + b.radius + 2, 'planet surfaces have breathing room');
+      const clearance = a.radius + b.radius + 2;
+      const dx = a.position.x-b.position.x, dy=a.position.y-b.position.y, dz=a.position.z-b.position.z;
+      assert.ok(dx*dx+dy*dy+dz*dz > clearance*clearance, 'planet surfaces have breathing room');
     }
   }
 });
@@ -146,7 +202,7 @@ test('round seeds change planet positions, sizes and appearance reproducibly', (
   assert.notDeepEqual(first.map(w=>w.radius), other.map(w=>w.radius));
   assert.notDeepEqual(first.map(w=>w.appearanceSeed), other.map(w=>w.appearanceSeed));
   for (const layout of [first,other]) {
-    assert.equal(layout.length, 1200);
+    assert.equal(layout.length, WORLD_COUNT);
     assert.ok(layout.every(w=>w.radius>=1.6&&w.radius<=6.8));
     assert.ok(layout.filter(w=>w.radius<2.8).length>330);
     assert.ok(layout.filter(w=>w.radius>4.6).length>170);
@@ -154,7 +210,8 @@ test('round seeds change planet positions, sizes and appearance reproducibly', (
     assert.ok(new Set(layout.map(w=>Math.round(w.position.x))).size>140);
     for (let i=0;i<layout.length;i++) for (let j=i+1;j<layout.length;j++) {
       const a=layout[i],b=layout[j];
-      assert.ok(Math.hypot(a.position.x-b.position.x,a.position.y-b.position.y,a.position.z-b.position.z)>a.radius+b.radius+2);
+      const clearance=a.radius+b.radius+2, dx=a.position.x-b.position.x,dy=a.position.y-b.position.y,dz=a.position.z-b.position.z;
+      assert.ok(dx*dx+dy*dy+dz*dz>clearance*clearance);
     }
   }
 });
@@ -223,7 +280,7 @@ function runRound(count, frameRate, pauses = false, seed = 0) {
   const racers = Array.from({ length: count }, (_, i) => createFlight(`학생 ${i + 1}`, i, seed));
   const worlds = createWorldLayout(seed), destroyed = new Set(); racers.forEach(launchFlight);
   let accumulator = 0, frame = 0, hits = 0;
-  while (!racers.every(r => r.done) && frame < frameRate * 60) {
+  while (!racers.every(r => r.done) && frame < frameRate * 150) {
     frame++;
     if (pauses && frame % 11 === 0) continue;
     accumulator += 1 / frameRate;
@@ -236,9 +293,9 @@ function runRound(count, frameRate, pauses = false, seed = 0) {
   assert.equal(racers.reduce((sum, r) => sum + r.planets, 0), hits);
   assert.ok(hits > 0);
   assert.ok(racers.some(r => r.flightTime > 18), 'the extended map produces a longer show');
-  assert.ok(racers.every(r => scoreFlight(r) === r.planets * 150 + Math.floor(r.distance)));
+  assert.ok(racers.every(r => scoreFlight(r) === additionalPoints(r) + Math.floor(r.distance)));
   if (count === 30) assert.ok(Math.max(...racers.map(r=>r.distance)) - Math.min(...racers.map(r=>r.distance)) > 500, 'launch variation makes distance points meaningful');
-  return racers.map(r => ({ name: r.name, planets: r.planets, distance: r.distance, flightTime: r.flightTime, score: scoreFlight(r) }));
+  return racers.map(r => ({ index: r.index, name: r.name, planets: r.planets, distance: r.distance, flightTime: r.flightTime, eventPoints: r.eventPoints, magnetLevel: r.magnetLevel, specialCount: r.specialCount, score: scoreFlight(r) }));
 }
 test('a newly randomized map also keeps the same score across presentation speeds', () => {
   assert.deepEqual(runRound(30,30,false,42),runRound(30,144,true,42));

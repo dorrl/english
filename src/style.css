@@ -465,6 +465,148 @@ textarea::placeholder {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.has-penalty .racer-stats { color: #f0a3bb; }
+.event-feed {
+  position: absolute;
+  top: 87px;
+  left: 24px;
+  z-index: 9;
+  width: min(334px, calc(100% - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+}
+.event-feed li {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateX(0);
+  transition: grid-template-rows .38s cubic-bezier(.4, 0, .2, 1), opacity .3s, transform .38s;
+}
+.event-feed li.is-leaving {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateX(-15px) scale(.98);
+}
+.event-clip { overflow: hidden; min-height: 0; border-radius: 14px; }
+.event-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--event-color) 37%, transparent);
+  border-radius: 14px;
+  background: radial-gradient(ellipse at 0 30%, color-mix(in srgb, var(--event-color) 13%, transparent), transparent 75%), linear-gradient(120deg, #142333f7, #091320f5);
+  box-shadow: 0 1px 0 #ffffff0a inset, 0 10px 25px #0004;
+  backdrop-filter: blur(12px);
+  animation: eventCardEnter .52s cubic-bezier(.16, 1, .3, 1) both;
+}
+.event-card:before {
+  content: '';
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--event-color);
+  box-shadow: 0 0 14px var(--event-color);
+}
+.event-emblem {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  border: 1px solid color-mix(in srgb, var(--event-color) 55%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--event-color) 9%, transparent);
+  color: var(--event-color);
+  font: 33px Arial, sans-serif;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--event-color) 45%, transparent);
+  animation: eventEmblem .65s ease-out both;
+}
+.event-emblem:after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border: 1px solid color-mix(in srgb, var(--event-color) 20%, transparent);
+  border-radius: 50%;
+}
+.event-body { flex: 1; min-width: 0; }
+.event-heading { display: flex; align-items: center; gap: 8px; }
+.event-heading strong {
+  display: block;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #edf6fb;
+  font-size: 13px;
+}
+.event-heading > span { color: #a3b9c9; font-size: 10px; white-space: nowrap; }
+.event-reward { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; margin-top: 8px; }
+.event-reward b { color: var(--event-color); font-size: 27px; line-height: 1.1; font-weight: 650; letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
+.event-reward small { color: #abc1cf; font-size: 10px; white-space: nowrap; }
+.event-feed .is-system .event-reward small { white-space: normal; line-height: 1.5; }
+.event-life { position: absolute; bottom: 0; left: 16px; right: 16px; height: 2px; background: #c0d8e50b; overflow: hidden; }
+.event-life i { display: block; height: 100%; transform-origin: left; background: linear-gradient(90deg, color-mix(in srgb, var(--event-color) 35%, transparent), var(--event-color)); }
+body[data-phase="results"] .event-feed { display: none; }
+@keyframes eventCardEnter {
+  from { opacity: 0; transform: translateX(-20px) translateY(-4px) scale(.97); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes eventEmblem {
+  from { opacity: .4; transform: scale(.78) rotate(-20deg); }
+  65% { opacity: 1; transform: scale(1.07) rotate(3deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+.winner-breakdown {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 0 0;
+  color: #8ea7b9;
+  font-size: 10px;
+}
+.winner-breakdown b { margin-left: 5px; color: #cddde5; font-weight: 400; font-variant-numeric: tabular-nums; }
+.negative-points { color: #f0a3bb !important; }
+.guide-visual.guide-specials {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: center;
+  gap: 22px 12px;
+  padding: 22px;
+}
+.guide-specials > div { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.guide-specials i { color: #68ecff; font: 30px Arial; }
+.guide-specials > div:nth-child(2) i { color: #ffd078; }
+.guide-specials > div:nth-child(3) i { color: #ff83b5; }
+.guide-specials > div:nth-child(4) i { color: #b49bff; }
+.guide-specials span { font-size: 12px; color: #d5e4ec; }
+.guide-specials b { display: block; margin-top: 7px; font-size: 10px; font-weight: 400; color: #91acbe; line-height: 1.5; }
+@media (max-width: 760px) {
+  .event-feed { top: 72px; left: 18px; width: min(300px, calc(100% - 36px)); gap: 6px; }
+  .event-card { padding: 12px 13px 14px; gap: 12px; }
+  .event-emblem { width: 36px; height: 36px; font-size: 27px; }
+  .event-heading strong { font-size: 12px; }
+  .event-heading > span { font-size: 9px; }
+  .event-reward { margin-top: 7px; gap: 8px; }
+  .event-reward b { font-size: 23px; }
+  .event-reward small { font-size: 9px; }
+  .winner-breakdown { font-size: 9px; gap: 5px; }
+  .guide-specials { gap: 15px 9px; padding: 14px; }
+  .guide-specials > div { gap: 7px; }
+  .guide-specials span { font-size: 10px; }
+  .guide-specials b { font-size: 9px; }
+}
 .racer-score {
   display: flex;
   flex-direction: column;
@@ -1051,8 +1193,11 @@ body.race-mode .leaderboard {
     gap: 6px;
   }
   body.race-mode .racer-stats {
-    display: none;
+    display: block;
+    font-size: 9px;
+    padding-left: 15px;
   }
+  body.race-mode .racer-details { gap: 4px; }
   body.race-mode .racer-score b {
     font-size: 17px;
   }
@@ -1484,6 +1629,7 @@ body:has(.game-guide[open]) {
 .guide-actions .primary-button {
   width: 137px;
   min-height: 44px;
+  white-space: nowrap;
 }
 .guide-back {
   padding: 0 16px;
@@ -1542,7 +1688,7 @@ body:has(.game-guide[open]) {
   .guide-copy p { font-size: 13px; }
   .guide-footer { margin-top: 10px; padding-top: 15px; }
   .guide-actions { gap: 7px; }
-  .guide-actions .primary-button { width: 118px; }
+  .guide-actions .primary-button { width: 128px; padding-inline: 14px; }
   .guide-back { padding: 0 11px; }
 }
 @media (max-height: 540px) {
