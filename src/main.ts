@@ -17,6 +17,7 @@ import { BatSwingTrail } from './bat';
 import { STEP, FINISH_DISTANCE, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, PLANET_POINTS, additionalPoints, centerAcceleration, compareFlights, contactTime, createFlight, distancePoints, downwardAcceleration, launchFlight, magnetRange, parseNames, scoreFlight, stepFlights } from './simulation';
 import type { Flight } from './simulation';
 import './style.css';
+import './device-layout.css';
 
 type Racer = Flight & { color: number; mesh: THREE.Mesh; tag: THREE.Sprite; trail: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>; trailPoints: Float32Array; row: HTMLLIElement };
 type Phase = 'idle' | 'countdown' | 'windup' | 'swing' | 'followthrough' | 'flight' | 'settle' | 'results';
@@ -31,6 +32,9 @@ let roundSeed = 0;
 const number = (value: number) => value.toLocaleString('ko-KR');
 const rankingMotion = new RankingMotion($<HTMLOListElement>('leaderboard'), reducedMotion);
 const eventFeed = new EventFeed($<HTMLOListElement>('event-feed'));
+const compactLayout = matchMedia('(max-width: 1366px)');
+eventFeed.setCompact(compactLayout.matches);
+compactLayout.addEventListener('change', event => eventFeed.setCompact(event.matches));
 const signed = (value: number) => `${value >= 0 ? '+' : '−'}${number(Math.abs(value))}`;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050b17);

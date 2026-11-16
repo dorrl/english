@@ -253,6 +253,26 @@ test('event notices queue every actor, expose actual target counts, and allow re
     assert.equal(feed.readyForResults,true);
     feed.clear(); assert.equal(list.children.length,0);
     assert.equal(feed.notifyGravity(60,60,2),true,'reset permits the next round announcement');
+    feed.clear();
+    for(const actor of flights) feed.push({kind:'drain',actor,targets:flights.slice(1,3),amount:-500,range:0});
+    feed.update(0); assert.equal(list.children.length,3);
+    feed.setCompact(true); assert.equal(list.children.length,1,'shrinking a live feed immediately frees screen space');
+    assert.equal(feed.notifyGravity(30,30,1),true);
+    assert.equal(list.children.length,1,'priority alerts share the same compact slot');
+    assert.deepEqual(actors(list.children[0]),['30초 경과']);
+    seen.clear();
+    for(let i=0;i<115;i++) {
+      feed.update(.25); assert.ok(list.children.length<=1);
+      for(const node of list.children) for(const name of actors(node)) if(name.startsWith('학생')) seen.add(name);
+    }
+    assert.equal(seen.size,7,'all deferred events survive a layout change and a priority notice');
+    assert.equal(feed.readyForResults,true);
+    feed.push(wave); feed.update(0); assert.equal(feed.readyForResults,false);
+    feed.update(2); assert.equal(feed.readyForResults,false,'compact cards retain the reading interval');
+    feed.update(.11); assert.equal(feed.readyForResults,true);
+    feed.clear(); feed.setCompact(false);
+    for(const actor of flights.slice(0,3)) feed.push({kind:'bonus',actor,targets:[],amount:1000,range:0});
+    feed.update(0); assert.equal(list.children.length,3,'desktop capacity is restored after expanding');
   } finally {
     if (previous === undefined) delete globalThis.document; else globalThis.document = previous;
   }
