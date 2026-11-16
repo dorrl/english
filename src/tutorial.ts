@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'boom-planet:guide:hidden:v1';
+const STORAGE_KEY = 'boom-planet:guide:hidden:v2';
 const steps = [
   {
     label: '01 · 참가자', title: '이름만 입력하면 준비 끝',
@@ -8,12 +8,17 @@ const steps = [
   {
     label: '02 · 진행 방식', title: '시작하면, 경기는 자동으로',
     description: '공이 우주를 날며 행성을 파괴합니다. 별도 조작 없이 날아가는 공들을 지켜보세요.',
-    detail: '카메라는 여러 공을 번갈아 비춰요. 모든 비행이 끝나면 우승자와 최종 순위가 나타납니다.',
+    detail: '카메라는 점수 상위 약 20%와 점수가 빠르게 오르는 공을 우선 비춰요. 모든 비행이 끝나면 최종 순위가 나타납니다.',
   },
   {
     label: '03 · 점수 계산', title: '멀리 날고, 많이 부술수록',
-    description: '행성 파괴 점수와 비행 거리 점수를 더해 순위를 정합니다. 합산 점수가 가장 높은 사람이 우승해요.',
-    detail: '태양·인공위성·우주정거장은 배경 요소로 점수에 포함되지 않아요.',
+    description: '거리 1m당 1점에 추가 점수를 더합니다. 추가 점수는 행성 파괴 점수와 특수 이벤트의 가감점을 합친 값이에요.',
+    detail: '합산 점수가 가장 높은 사람이 우승해요. 태양·인공위성·우주정거장은 점수에 포함되지 않습니다.',
+  },
+  {
+    label: '04 · 특수 행성', title: '빛나는 행성이 만드는 반전',
+    description: '궤도와 아이콘이 빛나는 행성을 깨면 특별한 효과가 발동해요. 왼쪽 위 알림에서 누가 어떤 효과를 얻었는지 확인하세요.',
+    detail: '감점은 다른 학생 중 약 20%(최소 1명)에게 적용돼요. 비행을 마친 학생도 영향을 받으며, 점수는 음수가 될 수 있습니다.',
   },
 ];
 
@@ -29,7 +34,7 @@ export function initTutorial(planetPoints: number) {
     try { return localStorage.getItem(STORAGE_KEY) === '1'; } catch { return false; }
   };
   dialog.querySelectorAll('[data-guide-planet-points]').forEach(el => { el.textContent = planetPoints.toLocaleString('ko-KR'); });
-  get('guide-example-score').textContent = `${(planetPoints * 4 + 800).toLocaleString('ko-KR')}점`;
+  get('guide-example-score').textContent = `${(planetPoints * 4 + 1000 + 800).toLocaleString('ko-KR')}점`;
 
   function showStep(index: number) {
     step = index;

@@ -61,6 +61,17 @@ export class Effects {
       fragment.duration = fragment.life = .2; fragment.size = .065; fragment.spin = 0; fragment.color.set(0xffd085);
     }
   }
+  pull(from: Vector, to: Vector, color: number) {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    const distance = Math.hypot(dx, dy, dz);
+    if (distance < .5) return;
+    for (let i = 0; i < 2; i++) {
+      const fragment = this.fragments[this.fragmentCursor++ % MAX_FRAGMENTS], fraction = .2 + i * .28;
+      fragment.position.set(from.x + dx * fraction, from.y + dy * fraction + .15, from.z + dz * fraction);
+      fragment.velocity.set(dx, dy, dz).multiplyScalar(11 / distance);
+      fragment.duration = fragment.life = .23; fragment.size = .045; fragment.spin = 0; fragment.color.set(color);
+    }
+  }
   update(dt: number) {
     for (let i = 0; i < MAX_FRAGMENTS; i++) {
       const fragment = this.fragments[i]; fragment.life = Math.max(0, fragment.life - dt);

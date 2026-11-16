@@ -1,6 +1,8 @@
 import * as THREE from 'three';
-import { FINISH_DISTANCE, createWorldLayout, random } from './simulation';
+import { FINISH_DISTANCE, createWorldLayout, random, resetWorldField } from './simulation';
 import type { WorldLayout } from './simulation';
+import { SPECIAL_STYLE } from './special-events';
+import type { SpecialKind } from './simulation';
 import { SpaceScenery } from './scenery';
 import { buildCosmicBat } from './bat';
 
@@ -11,9 +13,17 @@ const ringGeometry = new THREE.RingGeometry(1.26, 1.67, 64);
 export const ballGeometry = new THREE.SphereGeometry(.48, 24, 18);
 const seamGeometry = new THREE.TorusGeometry(.475, .017, 5, 40);
 const glowGeometry = new THREE.SphereGeometry(.64, 16, 12);
+const eventOrbitGeometry = new THREE.TorusGeometry(1.36, .025, 5, 48);
+const magnetAuraGeometry = new THREE.TorusGeometry(1.25, .025, 4, 48);
 export const fragmentGeometry = new THREE.IcosahedronGeometry(1, 0);
 export const shockGeometry = new THREE.TorusGeometry(1, .022, 6, 72);
 export const hex = (color: number) => `#${color.toString(16).padStart(6, '0')}`;
+
+// Physics uses its own positions. Hidden planets do not need their decorative
+// children to recompute world matrices across the entire 10 km field.
+class PlanetGroup extends THREE.Group {
+  override updateMatrixWorld(force?: boolean) { if (this.visible) super.updateMatrixWorld(force); }
+}
 
 export function glowTexture() {
   const canvas = document.createElement('canvas');
@@ -68,10 +78,26 @@ export class Arena {
   private planetMaterials = worldColors.map((_, i) => new THREE.MeshStandardMaterial({ map: planetTexture(i), roughness: .8, metalness: .1 }));
   private atmosphereMaterials = worldColors.map(color => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .13, side: THREE.BackSide, depthWrite: false }));
   private ringMaterials = worldColors.map(color => new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: .6, depthWrite: false }));
+  private eventMaterials = new Map<SpecialKind, { core: THREE.MeshStandardMaterial; halo: THREE.SpriteMaterial; orbit: THREE.MeshBasicMaterial; icon: THREE.SpriteMaterial }>();
+  private markers: { group: THREE.Group; orbit: THREE.Mesh; halo: THREE.Sprite; icon: THREE.Sprite; planet: Planet | null }[] = [];
   constructor(public scene: THREE.Scene) {
     this.buildBackdrop();
     this.buildDeck();
     this.buildBat();
+    for (const [kind, style] of Object.entries(SPECIAL_STYLE)) {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 96;
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#081421e6'; ctx.beginPath(); ctx.arc(48, 48, 42, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = hex(style.color); ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = 'bold 62px Arial'; ctx.fillText(style.icon, 48, 47);
+      const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+      this.eventMaterials.set(kind as SpecialKind, {
+        core: new THREE.MeshStandardMaterial({ map: this.planetMaterials[3].map, color: style.color, emissive: style.color, emissiveIntensity: .48, metalness: .3, roughness: .48 }),
+        halo: new THREE.SpriteMaterial({ map: this.glow, color: style.color, transparent: true, opacity: .34, depthWrite: false, blending: THREE.AdditiveBlending }),
+        orbit: new THREE.MeshBasicMaterial({ color: new THREE.Color(style.color).multiplyScalar(1.6), transparent: true, opacity: .85, depthWrite: false }),
+        icon: new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }),
+      });
+    }
     this.populate();
     this.scenery = new SpaceScenery(scene, this.glow);
   }
@@ -133,7 +159,7 @@ export class Arena {
   }
   populate() {
     for (const world of createWorldLayout()) {
-      const mesh = new THREE.Group();
+      const mesh = new PlanetGroup();
       const core = new THREE.Mesh(sphere, this.planetMaterials[0]);
       const atmosphere = new THREE.Mesh(sphere, this.atmosphereMaterials[0]);
       const ring = new THREE.Mesh(ringGeometry, this.ringMaterials[0]);
@@ -142,16 +168,19 @@ export class Arena {
       const planet: Planet = { ...world, position: { ...world.position }, mesh, core, atmosphere, ring, fineRing, color: 0, label: '', spin: 0 };
       this.applyWorld(planet, world); this.planets.push(planet);
     }
+    this.assignMarkers();
   }
   private applyWorld(planet: Planet, world: WorldLayout) {
     const { radius, appearanceSeed: seed } = world;
     const kind = Math.floor(random(seed + 43) * worldColors.length);
     planet.index = world.index; planet.appearanceSeed = seed;
     planet.position = { ...world.position }; planet.radius = radius; planet.destroyed = false;
+    planet.previous = undefined; planet.velocity = undefined; planet.special = world.special;
     planet.color = worldColors[kind]; planet.spin = .03 + random(seed + 77) * .09;
     planet.label = ['KEPLER', 'AURORA', 'VULCAN', 'NOVA', 'TITAN', 'SOLARIS', 'EDEN', 'NEBULA'][kind] + `-${world.index + 1}`;
-    planet.mesh.position.copy(world.position); planet.mesh.rotation.set(0, 0, 0); planet.mesh.visible = true;
+    planet.mesh.position.copy(world.position); planet.mesh.rotation.set(0, 0, 0); planet.mesh.visible = false;
     planet.core.material = this.planetMaterials[kind]; planet.core.scale.setScalar(radius);
+    if (planet.special) { planet.core.material = this.eventMaterials.get(planet.special)!.core; planet.color = SPECIAL_STYLE[planet.special].color; }
     planet.core.rotation.set(random(seed + 71) * .4, random(seed + 73) * 6, random(seed + 74) * .8);
     planet.atmosphere.material = this.atmosphereMaterials[kind]; planet.atmosphere.scale.setScalar(radius * 1.075);
     const hasRing = random(seed + 431) < (radius > 5 ? .34 : .56);
@@ -160,11 +189,45 @@ export class Arena {
     planet.ring.rotation.set(.65 + random(seed + 81) * 1.3, random(seed + 83) * .7, random(seed + 85) * 1.2);
     planet.fineRing.rotation.copy(planet.ring.rotation);
     planet.ring.visible = hasRing; planet.fineRing.visible = hasRing && random(seed + 433) < .45;
+    for (const part of [planet.core, planet.atmosphere, planet.ring, planet.fineRing]) { part.updateMatrix(); part.matrixAutoUpdate = false; }
   }
   resetWorlds(roundSeed = 0) {
     const layout = createWorldLayout(roundSeed);
     // Reuse the same meshes and shared surfaces when the round changes.
     for (let i = 0; i < this.planets.length; i++) this.applyWorld(this.planets[i], layout[i]);
+    resetWorldField(this.planets); this.assignMarkers();
+  }
+  private assignMarkers() {
+    for (const marker of this.markers) { marker.group.removeFromParent(); marker.planet = null; }
+    let cursor = 0;
+    for (const planet of this.planets) {
+      if (!planet.special) continue;
+      const materials = this.eventMaterials.get(planet.special)!;
+      let marker = this.markers[cursor++];
+      if (!marker) {
+        const group = new THREE.Group(), orbit = new THREE.Mesh(eventOrbitGeometry, materials.orbit);
+        const halo = new THREE.Sprite(materials.halo), icon = new THREE.Sprite(materials.icon);
+        group.add(orbit, halo, icon); marker = { group, orbit, halo, icon, planet: null }; this.markers.push(marker);
+      }
+      marker.planet = planet; marker.group.scale.setScalar(planet.radius);
+      marker.orbit.material = materials.orbit; marker.halo.material = materials.halo; marker.icon.material = materials.icon;
+      marker.halo.scale.set(4.3, 4.3, 1); marker.icon.scale.set(.68, .68, 1); marker.icon.position.set(0, 1.8, 0);
+      planet.mesh.add(marker.group);
+    }
+  }
+  updateWorlds(time: number, dt: number, reducedMotion: boolean) {
+    for (const planet of this.planets) {
+      if (planet.destroyed) continue;
+      if (planet.velocity) planet.mesh.position.copy(planet.position);
+      if (planet.mesh.visible) planet.mesh.rotation.y += dt * planet.spin;
+    }
+    for (const marker of this.markers) {
+      if (!marker.planet || marker.planet.destroyed || !marker.planet.mesh.visible) continue;
+      const phase = time * 1.8 + marker.planet.index;
+      marker.orbit.rotation.set(.6, reducedMotion ? .3 : time * .55, .25);
+      marker.halo.scale.setScalar(reducedMotion ? 4.6 : 4.6 + Math.sin(phase) * .25);
+      marker.icon.position.y = reducedMotion ? 1.8 : 1.8 + Math.sin(phase) * .07;
+    }
   }
   makeBall(color: number) {
     const mesh = new THREE.Mesh(ballGeometry, new THREE.MeshStandardMaterial({ color, metalness: .35, roughness: .2, emissive: color, emissiveIntensity: .7 }));
@@ -173,6 +236,8 @@ export class Arena {
     }
     mesh.add(new THREE.Mesh(glowGeometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .12, depthWrite: false, blending: THREE.AdditiveBlending })));
     const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glow, color, transparent: true, opacity: .5, depthWrite: false, blending: THREE.AdditiveBlending })); aura.scale.set(2.4, 2.4, 1); mesh.add(aura);
+    const magnet = new THREE.Mesh(magnetAuraGeometry, new THREE.MeshBasicMaterial({ color: SPECIAL_STYLE.magnet.color, transparent: true, opacity: .55, depthWrite: false, blending: THREE.AdditiveBlending }));
+    magnet.name = 'magnet-aura'; magnet.visible = false; mesh.add(magnet);
     return mesh;
   }
 }

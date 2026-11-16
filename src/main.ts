@@ -8,12 +8,13 @@ import type { Planet } from './arena';
 import { Effects } from './effects';
 import { Sound } from './audio';
 import { initTutorial } from './tutorial';
+import { EventFeed } from './special-events';
 import { impactFeedback } from './presentation';
 import { RankingMotion } from './ranking';
 import { CameraDirector } from './camera-director';
 import { BAT_TIMING, batCharge, sampleBatPose } from './bat-motion';
 import { BatSwingTrail } from './bat';
-import { STEP, FINISH_DISTANCE, GRAVITY, PLANET_POINTS, compareFlights, contactTime, createFlight, distancePoints, launchFlight, parseNames, scoreFlight, stepFlights } from './simulation';
+import { STEP, FINISH_DISTANCE, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, PLANET_POINTS, additionalPoints, centerAcceleration, compareFlights, contactTime, createFlight, distancePoints, downwardAcceleration, launchFlight, magnetRange, parseNames, scoreFlight, stepFlights } from './simulation';
 import type { Flight } from './simulation';
 import './style.css';
 
@@ -29,6 +30,8 @@ const director = new CameraDirector(0, reducedMotion);
 let roundSeed = 0;
 const number = (value: number) => value.toLocaleString('ko-KR');
 const rankingMotion = new RankingMotion($<HTMLOListElement>('leaderboard'), reducedMotion);
+const eventFeed = new EventFeed($<HTMLOListElement>('event-feed'));
+const signed = (value: number) => `${value >= 0 ? '+' : '−'}${number(Math.abs(value))}`;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050b17);
 scene.fog = new THREE.FogExp2(0x080f20, .0024);
@@ -42,9 +45,9 @@ let renderer: THREE.WebGLRenderer, composer: EffectComposer, arena: Arena, effec
 let batTrail: BatSwingTrail;
 let phase: Phase = 'idle', phaseTime = 0, showTime = 0, elapsed = 0, accumulator = 0;
 let ready = false, struck = false, totalDestroyed = 0, hitStop = 0, slowMotion = 0, shake = 0, flash = 0, impactCooldown = 0;
-let uiClock = 0, cullClock = 0, lastTick = -1;
+let uiClock = 0, cullClock = .11, lastTick = -1;
 let focus: Racer | null = null, impactFocus = new THREE.Vector3(), impactFocusLife = 0;
-let chargeParticles = 0;
+let chargeParticles = 0, gravityParticles = 0;
 const racers: Racer[] = [];
 const clock = new THREE.Clock();
 
@@ -112,13 +115,14 @@ function updateLeaderboard() {
     const score = scoreFlight(racer);
     racer.row.querySelector('.rank')!.textContent = (index + 1).toString().padStart(2, '0');
     racer.row.querySelector('.racer-score b')!.textContent = number(score);
-    racer.row.querySelector('.racer-stats')!.textContent = `${racer.planets} ✦  ·  ${number(distancePoints(racer.distance))} m`;
-    racer.row.style.setProperty('--score-ratio', String(leadingScore > 0 ? score / leadingScore : 0));
+    racer.row.querySelector('.racer-stats')!.textContent = `추가 ${signed(additionalPoints(racer))} · ${number(distancePoints(racer.distance))} m`;
+    racer.row.classList.toggle('has-penalty', additionalPoints(racer) < 0);
+    racer.row.style.setProperty('--score-ratio', String(leadingScore > 0 ? Math.max(0, score / leadingScore) : 0));
     racer.row.dataset.podium = struck && index < 3 ? String(index + 1) : '';
     racer.row.classList.toggle('is-leader', index === 0 && struck);
     racer.row.classList.toggle('is-focus', racer === focus);
     racer.row.classList.toggle('is-done', racer.done);
-    racer.row.title = `${racer.name} · ${number(scoreFlight(racer))}점 = 행성 ${racer.planets}개 × ${number(PLANET_POINTS)} + 거리 ${number(distancePoints(racer.distance))} m`;
+    racer.row.title = `${racer.name} · ${number(scoreFlight(racer))}점 = 거리 ${number(distancePoints(racer.distance))}점 + 행성 ${racer.planets}개 (${signed(racer.planets * PLANET_POINTS)}점) + 이벤트 ${signed(racer.eventPoints)}점`;
   });
   rankingMotion.reorder(sorted.map(racer => racer.row), struck && phase !== 'results');
   $('roster-total').textContent = String(racers.length).padStart(2, '0');
@@ -187,7 +191,7 @@ function updatePhase(dt: number) {
   } else if (phase === 'followthrough') {
     if (phaseTime >= BAT_TIMING.followthrough) setPhase('flight');
   } else if (phase === 'settle') {
-    if (phaseTime >= 1.7) showWinner();
+    if (phaseTime >= 1.7 && eventFeed.readyForResults) showWinner();
   }
   applyBatMotion();
   if (phase === 'windup') {
@@ -203,7 +207,9 @@ function updateFlight(dt: number) {
   if (!struck || phase === 'settle' || phase === 'results') return;
   accumulator += dt;
   while (accumulator >= STEP) {
-    stepFlights(racers, arena.planets, smashPlanet); elapsed += STEP; accumulator -= STEP;
+    stepFlights(racers, arena.planets, smashPlanet, event => { eventFeed.push(event); sound.special(event.kind); }); elapsed += STEP; accumulator -= STEP;
+    eventFeed.notifyGravity(elapsed, GRAVITY_FIRST_RAMP_START, 1);
+    eventFeed.notifyGravity(elapsed, GRAVITY_RAMP_START, 2);
     if (hitStop > 0) { accumulator = 0; break; }
   }
   if (racers.length && racers.every(racer => racer.done)) {
@@ -222,6 +228,11 @@ function drawRacers(dt: number) {
       racer.mesh.position.set(p.x, p.y + rise + hover, p.z);
     } else racer.mesh.position.copy(p);
     racer.mesh.rotation.x += dt * (racer.launched ? 8 : .4); racer.mesh.rotation.z += dt * 2;
+    racer.mesh.scale.setScalar(racer.boostUntil > racer.flightTime ? 1.12 : 1);
+    const magnetAura = racer.mesh.getObjectByName('magnet-aura')!;
+    magnetAura.visible = racer.magnetLevel > 0;
+    magnetAura.scale.setScalar(1 + Math.min(4, racer.magnetLevel) * .14);
+    magnetAura.rotation.set(.7, showTime * .8, .35);
     racer.mesh.visible = !racer.done;
     racer.tag.position.copy(racer.mesh.position); racer.tag.position.y += racer === focus ? 1.25 : .95;
     const labelHeight = camera.position.distanceTo(racer.mesh.position) * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 34 / Math.max(1, viewport.clientHeight);
@@ -238,7 +249,7 @@ function drawRacers(dt: number) {
 }
 function updateCamera(dt: number) {
   const showFollowthrough = phase === 'swing' || (phase === 'followthrough' && phaseTime < .28);
-  const selected = struck && !showFollowthrough ? director.update(dt, racers) : null;
+  const selected = struck && !showFollowthrough ? director.update(dt, racers, scoreFlight) : null;
   flightTelemetry.classList.toggle('hidden', !selected);
   if (!selected && focus) $('focus-score').textContent = `${number(scoreFlight(focus))}점`;
   if (focus !== selected) impactFocusLife = 0;
@@ -263,7 +274,8 @@ function updateCamera(dt: number) {
   } else {
     desiredPosition.copy(cameraPosition); desiredTarget.copy(cameraTarget);
   }
-  const ease = 1 - Math.exp(-dt * (struck ? (reducedMotion ? 3 : 4.2) : 2.1));
+  const trackingRate = selected ? Math.max(reducedMotion ? 3 : 4.2, selected.velocity.z / 28) : (reducedMotion ? 3 : 4.2);
+  const ease = 1 - Math.exp(-dt * (struck ? trackingRate : 2.1));
   cameraPosition.lerp(desiredPosition, ease); cameraTarget.lerp(desiredTarget, ease);
   camera.position.copy(cameraPosition);
   if (shake > .005) {
@@ -279,7 +291,7 @@ function updateTarget(racer: Racer | null) {
   if (!racer || !['flight', 'followthrough'].includes(phase)) { reticle.classList.add('hidden'); return; }
   // A short collision-course preview creates anticipation; it never steers a ball.
   const horizon = .7, p = racer.position, v = racer.velocity;
-  const ahead = { x: p.x + v.x * horizon, y: p.y + v.y * horizon - GRAVITY * .5 * horizon * horizon, z: p.z + v.z * horizon };
+  const ahead = { x: p.x + v.x * horizon + (racer.gravity.x + centerAcceleration(p.x)) * .5 * horizon * horizon, y: p.y + v.y * horizon + (racer.gravity.y - downwardAcceleration(racer.flightTime)) * .5 * horizon * horizon, z: p.z + v.z * horizon + racer.gravity.z * .5 * horizon * horizon };
   let closest: Planet | null = null, earliest = 1;
   for (const planet of arena.planets) {
     if (planet.destroyed || planet.position.z < p.z + 3 || planet.position.z > ahead.z + planet.radius) continue;
@@ -298,12 +310,23 @@ function updatePresentation(dt: number) {
   $('impact-flash').style.opacity = String(reducedMotion ? flash * .18 : flash);
   $('speed-lines').style.opacity = struck && !['settle', 'results'].includes(phase) && !reducedMotion ? String(Math.min(.55, .13 + slowMotion * .5)) : '0';
   effects.update(dt);
+  gravityParticles += dt;
+  if (gravityParticles > .07) {
+    gravityParticles = 0;
+    const target = focus && arena.planets[focus.gravityTarget];
+    if (!reducedMotion && focus && !focus.done && target && !target.destroyed && target.mesh.visible) {
+      const distance = Math.hypot(target.position.x - focus.position.x, target.position.y - focus.position.y, target.position.z - focus.position.z);
+      if (focus.magnetLevel && distance < magnetRange(focus)) effects.pull(target.position, focus.position, 0xb49bff);
+      else if (Math.hypot(focus.gravity.x, focus.gravity.y, focus.gravity.z) > .7) effects.pull(focus.position, target.position, 0x9ceaf2);
+    }
+  }
+  eventFeed.update(dt);
   arena.scenery.update(showTime, camera);
   for (let i = 0; i < arena.deckRings.length; i++) {
     const ring = arena.deckRings[i]; ring.rotation.z += dt * .1 * (i % 2 ? 1 : -1);
     (ring.material as THREE.MeshBasicMaterial).opacity = .5 + Math.sin(showTime * 2 + i) * .15 + (phase === 'windup' ? .25 : 0);
   }
-  for (const planet of arena.planets) if (!planet.destroyed && planet.mesh.visible) planet.mesh.rotation.y += dt * planet.spin;
+  arena.updateWorlds(showTime, dt, reducedMotion);
   uiClock += dt;
   if (uiClock > .12) {
     uiClock = 0; updateLeaderboard();
@@ -313,7 +336,11 @@ function updatePresentation(dt: number) {
 function showWinner() {
   setPhase('results'); sound.winner(); updateLeaderboard();
   const sorted = [...racers].sort(compareFlights), winner = sorted[0];
-  $('winner-name').textContent = winner.name; $('winner-planets').textContent = String(winner.planets);
+  $('winner-name').textContent = winner.name; $('winner-extra').textContent = signed(additionalPoints(winner));
+  $('winner-destruction').textContent = `${signed(winner.planets * PLANET_POINTS)}점`;
+  $('winner-events').textContent = `${signed(winner.eventPoints)}점`;
+  $('winner-extra').classList.toggle('negative-points', additionalPoints(winner) < 0);
+  $('winner-events').classList.toggle('negative-points', winner.eventPoints < 0);
   $('winner-distance').textContent = number(distancePoints(winner.distance));
   $('winner-score').textContent = number(scoreFlight(winner));
   $('winner-banner').style.setProperty('--winner-color', hex(winner.color));
@@ -322,7 +349,7 @@ function showWinner() {
     const row = document.createElement('li'), rank = document.createElement('span'), name = document.createElement('span'), score = document.createElement('span');
     const planets = document.createElement('b'), distance = document.createElement('small');
     rank.className = 'podium-rank'; name.className = 'podium-name'; score.className = 'podium-score';
-    rank.textContent = String(i + 1); name.textContent = racer.name; planets.textContent = `${number(scoreFlight(racer))}점`; distance.textContent = `${racer.planets} ✦ · ${number(distancePoints(racer.distance))} m`;
+    rank.textContent = String(i + 1); name.textContent = racer.name; planets.textContent = `${number(scoreFlight(racer))}점`; distance.textContent = `추가 ${signed(additionalPoints(racer))} · ${number(distancePoints(racer.distance))} m`;
     score.append(planets, distance); row.style.setProperty('--podium-delay', `${i * 75 + 170}ms`);
     row.append(rank, name, score); $('winner-podium').append(row);
   });
@@ -331,9 +358,10 @@ function showWinner() {
   $('winner-replay').focus({ preventScroll: true });
 }
 function clearRound() {
-  sound.stop(); effects.clear(); batTrail.clear(); arena.resetWorlds(roundSeed);
+  sound.stop(); effects.clear(); batTrail.clear(); eventFeed.clear(); arena.resetWorlds(roundSeed);
   phaseTime = showTime = elapsed = accumulator = 0; struck = false; totalDestroyed = hitStop = slowMotion = shake = flash = 0;
-  impactCooldown = uiClock = cullClock = impactFocusLife = chargeParticles = 0;
+  impactCooldown = uiClock = cullClock = impactFocusLife = chargeParticles = gravityParticles = 0;
+  cullClock = .11;
   lastTick = -1;
   $('countdown').classList.add('hidden'); $('winner-banner').classList.add('hidden'); $('target-reticle').classList.add('hidden');
   $('race-time').textContent = '00:00.0'; $('remaining-count').textContent = '00';
@@ -393,8 +421,8 @@ function boot() {
   const key = new THREE.DirectionalLight(0xffeed4, 3.4); key.position.set(-18, 28, -20); scene.add(key);
   const rim = new THREE.DirectionalLight(0x728aff, 2.5); rim.position.set(25, 10, 15); scene.add(rim);
   arena = new Arena(scene); effects = new Effects(scene, arena.glow); batTrail = new BatSwingTrail(scene);
-  $('winner-rule').textContent = `행성 1개 ${number(PLANET_POINTS)}점 + 거리 1m 1점`;
-  $('score-rule').textContent = `행성 × ${number(PLANET_POINTS)} + 거리`;
+  $('winner-rule').textContent = `총점 = 거리 점수 + 추가 점수 (행성 × ${number(PLANET_POINTS)} + 이벤트)`;
+  $('score-rule').textContent = '거리 + 추가 점수';
   namesInput.addEventListener('input', updateCount); startButton.addEventListener('click', startGame); resetButton.addEventListener('click', resetGame);
   $('winner-replay').addEventListener('click', startGame); $('winner-close').addEventListener('click', resetGame);
   $('winner-banner').addEventListener('keydown', event => {
