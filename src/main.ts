@@ -14,16 +14,20 @@ import { RankingMotion } from './ranking';
 import { CameraDirector } from './camera-director';
 import { BAT_TIMING, batCharge, sampleBatPose } from './bat-motion';
 import { BatSwingTrail } from './bat';
-import { STEP, FINISH_DISTANCE, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, PLANET_POINTS, additionalPoints, centerAcceleration, compareFlights, contactTime, createFlight, distancePoints, downwardAcceleration, launchFlight, magnetRange, parseNames, scoreFlight, stepFlights } from './simulation';
+import { STEP, FINISH_DISTANCE, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, PLANET_POINTS, additionalPoints, centerAcceleration, compareFlights, contactTime, createFlight, distancePoints, flightGravity, launchFlight, magnetRange, parseNames, scoreFlight, survivalPoints, stepFlights } from './simulation';
 import type { Flight } from './simulation';
 import './style.css';
 import './device-layout.css';
+import './tutorial-motion.css';
+import './focus-hud.css';
 
 type Racer = Flight & { color: number; mesh: THREE.Mesh; tag: THREE.Sprite; trail: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>; trailPoints: Float32Array; row: HTMLLIElement };
 type Phase = 'idle' | 'countdown' | 'windup' | 'swing' | 'followthrough' | 'flight' | 'settle' | 'results';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const viewport = $('viewport'), namesInput = $<HTMLTextAreaElement>('names');
 const flightTelemetry = document.querySelector<HTMLElement>('.flight-telemetry')!;
+const focusRank = $('focus-rank'), focusRankValue = $('focus-rank-value');
+let rankAnimation: Animation | null = null;
 const startButton = $<HTMLButtonElement>('start-race'), resetButton = $<HTMLButtonElement>('reset-race');
 const sound = new Sound();
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -32,9 +36,10 @@ let roundSeed = 0;
 const number = (value: number) => value.toLocaleString('ko-KR');
 const rankingMotion = new RankingMotion($<HTMLOListElement>('leaderboard'), reducedMotion);
 const eventFeed = new EventFeed($<HTMLOListElement>('event-feed'));
-const compactLayout = matchMedia('(max-width: 1366px)');
-eventFeed.setCompact(compactLayout.matches);
-compactLayout.addEventListener('change', event => eventFeed.setCompact(event.matches));
+const compactLayout = matchMedia('(max-width: 599px)');
+const updateFeedLayout = () => eventFeed.setCompact(compactLayout.matches);
+updateFeedLayout();
+compactLayout.addEventListener('change', updateFeedLayout);
 const signed = (value: number) => `${value >= 0 ? '+' : '−'}${number(Math.abs(value))}`;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x050b17);
@@ -119,14 +124,14 @@ function updateLeaderboard() {
     const score = scoreFlight(racer);
     racer.row.querySelector('.rank')!.textContent = (index + 1).toString().padStart(2, '0');
     racer.row.querySelector('.racer-score b')!.textContent = number(score);
-    racer.row.querySelector('.racer-stats')!.textContent = `추가 ${signed(additionalPoints(racer))} · ${number(distancePoints(racer.distance))} m`;
+    racer.row.querySelector('.racer-stats')!.textContent = `생존 ${number(survivalPoints(racer.flightTime))} · 추가 ${signed(additionalPoints(racer))}`;
     racer.row.classList.toggle('has-penalty', additionalPoints(racer) < 0);
     racer.row.style.setProperty('--score-ratio', String(leadingScore > 0 ? Math.max(0, score / leadingScore) : 0));
     racer.row.dataset.podium = struck && index < 3 ? String(index + 1) : '';
     racer.row.classList.toggle('is-leader', index === 0 && struck);
     racer.row.classList.toggle('is-focus', racer === focus);
     racer.row.classList.toggle('is-done', racer.done);
-    racer.row.title = `${racer.name} · ${number(scoreFlight(racer))}점 = 거리 ${number(distancePoints(racer.distance))}점 + 행성 ${racer.planets}개 (${signed(racer.planets * PLANET_POINTS)}점) + 이벤트 ${signed(racer.eventPoints)}점`;
+    racer.row.title = `${racer.name} · ${number(scoreFlight(racer))}점 = 생존 ${number(survivalPoints(racer.flightTime))}점 (${racer.flightTime.toFixed(1)}초) + 거리 ${number(distancePoints(racer.distance))}점 + 행성 ${racer.planets}개 (${signed(racer.planets * PLANET_POINTS)}점) + 이벤트·교환 ${signed(racer.eventPoints)}점`;
   });
   rankingMotion.reorder(sorted.map(racer => racer.row), struck && phase !== 'results');
   $('roster-total').textContent = String(racers.length).padStart(2, '0');
@@ -211,8 +216,15 @@ function updateFlight(dt: number) {
   if (!struck || phase === 'settle' || phase === 'results') return;
   accumulator += dt;
   while (accumulator >= STEP) {
-    stepFlights(racers, arena.planets, smashPlanet, event => { eventFeed.push(event); sound.special(event.kind); }); elapsed += STEP; accumulator -= STEP;
+    stepFlights(racers, arena.planets, smashPlanet, event => {
+      eventFeed.push(event); sound.special(event.kind);
+      if (event.kind === 'swap' && event.targets.length) for (const flight of [event.actor, ...event.targets]) {
+        for (let i = 0; i < flight.trailPoints.length; i += 3) flight.trailPoints.set([flight.position.x, flight.position.y, flight.position.z], i);
+        effects.burst(new THREE.Vector3(flight.position.x, flight.position.y, flight.position.z), 0xffdd86, 2, true);
+      }
+    }); elapsed += STEP; accumulator -= STEP;
     eventFeed.notifyGravity(elapsed, GRAVITY_FIRST_RAMP_START, 1);
+    eventFeed.notifyGravity(elapsed, 45);
     eventFeed.notifyGravity(elapsed, GRAVITY_RAMP_START, 2);
     if (hitStop > 0) { accumulator = 0; break; }
   }
@@ -232,7 +244,10 @@ function drawRacers(dt: number) {
       racer.mesh.position.set(p.x, p.y + rise + hover, p.z);
     } else racer.mesh.position.copy(p);
     racer.mesh.rotation.x += dt * (racer.launched ? 8 : .4); racer.mesh.rotation.z += dt * 2;
-    racer.mesh.scale.setScalar(racer.boostUntil > racer.flightTime ? 1.12 : 1);
+    racer.mesh.scale.setScalar(racer.size * (racer.boostUntil > racer.flightTime ? 1.12 : 1));
+    const gravityAura = racer.mesh.getObjectByName('gravity-aura')!;
+    gravityAura.visible = racer.gravityFactor < 1 || racer.reverseUntil > racer.flightTime;
+    gravityAura.rotation.set(.5, showTime * .8, racer.reverseUntil > racer.flightTime ? -.7 : .7);
     const magnetAura = racer.mesh.getObjectByName('magnet-aura')!;
     magnetAura.visible = racer.magnetLevel > 0;
     magnetAura.scale.setScalar(1 + Math.min(4, racer.magnetLevel) * .14);
@@ -241,7 +256,7 @@ function drawRacers(dt: number) {
     racer.tag.position.copy(racer.mesh.position); racer.tag.position.y += racer === focus ? 1.25 : .95;
     const labelHeight = camera.position.distanceTo(racer.mesh.position) * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 34 / Math.max(1, viewport.clientHeight);
     racer.tag.scale.set(labelHeight * 512 / 112, labelHeight, 1);
-    racer.tag.position.y = racer.mesh.position.y + .9 + labelHeight * .55;
+    racer.tag.position.y = racer.mesh.position.y + .9 * racer.size + labelHeight * .55;
     const nearby = !!focus && Math.hypot(p.x - focus.position.x, p.y - focus.position.y, p.z - focus.position.z) < 28;
     racer.tag.visible = !racer.done && (struck ? racer === focus || (nearby && racers.length <= 8) : racers.length <= 6);
     if (racer.launched && !racer.done && dt > 0) {
@@ -268,6 +283,16 @@ function updateCamera(dt: number) {
     desiredPosition.set(x + offset[0] * (narrow ? .6 : 1), y + offset[1], z + offset[2] - (narrow ? 10 : 0));
     fov = 56 + Math.min(5, selected.velocity.z / 32);
     $('focus-name').textContent = selected.name; $('focus-score').textContent = `${number(scoreFlight(selected))}점`;
+    $('focus-distance').textContent = `${number(distancePoints(selected.distance))}m`;
+    const rank = 1 + racers.filter(racer => compareFlights(racer, selected) < 0).length;
+    const key = `${selected.index}:${rank}`;
+    if (focusRank.dataset.key !== key) {
+      focusRank.dataset.key = key; focusRank.dataset.podium = rank <= 3 ? String(rank) : '';
+      focusRankValue.textContent = String(rank);
+      focusRank.setAttribute('aria-label', `${selected.name}, 전체 ${racers.length}명 중 현재 ${rank}등`);
+      rankAnimation?.cancel();
+      if (!reducedMotion) rankAnimation = focusRank.animate([{ transform: 'translateY(4px) scale(.94)', opacity: .65 }, { transform: 'translateY(0) scale(1)', opacity: 1 }], { duration: 300, easing: 'cubic-bezier(.22, 1, .36, 1)' });
+    }
     $('focus-color').style.background = hex(selected.color);
     const farthest = racers.reduce((distance, racer) => Math.max(distance, racer.distance), 0);
     $('flight-fill').style.transform = `scaleX(${Math.min(1, farthest / FINISH_DISTANCE)})`;
@@ -295,7 +320,7 @@ function updateTarget(racer: Racer | null) {
   if (!racer || !['flight', 'followthrough'].includes(phase)) { reticle.classList.add('hidden'); return; }
   // A short collision-course preview creates anticipation; it never steers a ball.
   const horizon = .7, p = racer.position, v = racer.velocity;
-  const ahead = { x: p.x + v.x * horizon + (racer.gravity.x + centerAcceleration(p.x)) * .5 * horizon * horizon, y: p.y + v.y * horizon + (racer.gravity.y - downwardAcceleration(racer.flightTime)) * .5 * horizon * horizon, z: p.z + v.z * horizon + racer.gravity.z * .5 * horizon * horizon };
+  const ahead = { x: p.x + v.x * horizon + (racer.gravity.x + centerAcceleration(p.x)) * .5 * horizon * horizon, y: p.y + v.y * horizon + (racer.gravity.y - flightGravity(racer)) * .5 * horizon * horizon, z: p.z + v.z * horizon + racer.gravity.z * .5 * horizon * horizon };
   let closest: Planet | null = null, earliest = 1;
   for (const planet of arena.planets) {
     if (planet.destroyed || planet.position.z < p.z + 3 || planet.position.z > ahead.z + planet.radius) continue;
@@ -346,6 +371,7 @@ function showWinner() {
   $('winner-extra').classList.toggle('negative-points', additionalPoints(winner) < 0);
   $('winner-events').classList.toggle('negative-points', winner.eventPoints < 0);
   $('winner-distance').textContent = number(distancePoints(winner.distance));
+  $('winner-survival').textContent = `${number(survivalPoints(winner.flightTime))}점 · ${winner.flightTime.toFixed(1)}초`;
   $('winner-score').textContent = number(scoreFlight(winner));
   $('winner-banner').style.setProperty('--winner-color', hex(winner.color));
   $('winner-podium').replaceChildren();
@@ -353,7 +379,7 @@ function showWinner() {
     const row = document.createElement('li'), rank = document.createElement('span'), name = document.createElement('span'), score = document.createElement('span');
     const planets = document.createElement('b'), distance = document.createElement('small');
     rank.className = 'podium-rank'; name.className = 'podium-name'; score.className = 'podium-score';
-    rank.textContent = String(i + 1); name.textContent = racer.name; planets.textContent = `${number(scoreFlight(racer))}점`; distance.textContent = `추가 ${signed(additionalPoints(racer))} · ${number(distancePoints(racer.distance))} m`;
+    rank.textContent = String(i + 1); name.textContent = racer.name; planets.textContent = `${number(scoreFlight(racer))}점`; distance.textContent = `생존 ${number(survivalPoints(racer.flightTime))} · 추가 ${signed(additionalPoints(racer))}`;
     score.append(planets, distance); row.style.setProperty('--podium-delay', `${i * 75 + 170}ms`);
     row.append(rank, name, score); $('winner-podium').append(row);
   });
@@ -371,6 +397,9 @@ function clearRound() {
   $('race-time').textContent = '00:00.0'; $('remaining-count').textContent = '00';
   $('charge-fill').style.transform = 'scaleX(0)'; $('flight-fill').style.transform = 'scaleX(0)';
   $('focus-name').textContent = ''; $('focus-score').textContent = '0점';
+  $('focus-distance').textContent = '0m'; focusRankValue.textContent = '—';
+  delete focusRank.dataset.key; delete focusRank.dataset.podium;
+  focusRank.setAttribute('aria-label', '현재 순위'); rankAnimation?.cancel(); rankAnimation = null;
   director.reset(roundSeed);
   $('impact-flash').style.opacity = '0'; $('speed-lines').style.opacity = '0';
   const rest = sampleBatPose('idle'); arena.bat.position.set(...rest.position); arena.bat.rotation.set(...rest.rotation); arena.batPower.emissiveIntensity = 1.5;
@@ -425,8 +454,8 @@ function boot() {
   const key = new THREE.DirectionalLight(0xffeed4, 3.4); key.position.set(-18, 28, -20); scene.add(key);
   const rim = new THREE.DirectionalLight(0x728aff, 2.5); rim.position.set(25, 10, 15); scene.add(rim);
   arena = new Arena(scene); effects = new Effects(scene, arena.glow); batTrail = new BatSwingTrail(scene);
-  $('winner-rule').textContent = `총점 = 거리 점수 + 추가 점수 (행성 × ${number(PLANET_POINTS)} + 이벤트)`;
-  $('score-rule').textContent = '거리 + 추가 점수';
+  $('winner-rule').textContent = `총점 = 생존 + 거리 + 행성 × ${number(PLANET_POINTS)} + 이벤트·교환`;
+  $('score-rule').textContent = '생존 + 거리 + 추가';
   namesInput.addEventListener('input', updateCount); startButton.addEventListener('click', startGame); resetButton.addEventListener('click', resetGame);
   $('winner-replay').addEventListener('click', startGame); $('winner-close').addEventListener('click', resetGame);
   $('winner-banner').addEventListener('keydown', event => {

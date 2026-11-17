@@ -2,7 +2,7 @@
 .stage-panel { position: relative; }
 .event-dock { min-width: 0; }
 
-@media (max-width: 1366px) {
+@media (max-width: 599px) {
   button { touch-action: manipulation; }
   .help-button, .secondary-button, .guide-skip, .guide-back, .result-reset { min-height: 44px; }
   textarea { font-size: 16px; } /* Avoid automatic input zoom on tablets. */
@@ -81,55 +81,51 @@
   .result-actions button { min-height: 44px; }
 }
 
-/* Tablet landscape: a tall arena and a touch-sized, independently scrolling board. */
-@media (min-width: 600px) and (max-width: 1366px) and (orientation: landscape) {
-  .layout { grid-template-columns: minmax(0, 1fr) 264px; }
-  .viewport-wrap { height: max(380px, calc(100svh - 82px)); min-height: 0; }
-  .leaderboard { max-height: 180px; }
+/* Tablets share the desktop composition in either orientation. */
+@media (min-width: 600px) and (max-width: 1366px) {
+  button { touch-action: manipulation; }
+  .help-button, .secondary-button, .guide-skip, .guide-back, .result-reset { min-height: 44px; }
+  textarea { font-size: 16px; }
+  .topbar, body.race-mode .topbar { height: 52px; padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
+  .layout { grid-template-columns: minmax(0, 1fr) clamp(228px, 26vw, 286px); gap: 12px; padding: 14px; }
+  .viewport-wrap { height: max(420px, calc(100svh - 80px)); min-height: 0; }
+  .control-panel { padding: 16px 12px; }
   body.race-mode .layout {
     height: calc(100dvh - 52px);
-    grid-template-columns: minmax(0, 1fr) clamp(238px, 25vw, 286px);
+    grid-template-columns: minmax(0, 1fr) clamp(228px, 26vw, 286px);
     grid-template-rows: minmax(0, 1fr);
     padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
     gap: 10px;
   }
-  body.race-mode .panel-title { margin: 0 0 14px; }
-  body.race-mode .panel-title h2 { font-size: 17px; gap: 8px; }
-  body.race-mode .panel-title svg { display: block; }
-  body.race-mode .racer-score { flex-direction: column; align-items: flex-end; }
-  body.race-mode .racer-score small { display: block; }
-  body.race-mode .ranking-note { display: flex; font-size: 9px; }
-  body.race-mode #reset-race { position: static; width: 100%; }
-}
-
-/* Tablet portrait: full-width arena, notification rail, then a roomy live board. */
-@media (min-width: 600px) and (max-width: 1366px) and (orientation: portrait) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
-  .viewport-wrap { height: clamp(280px, 38svh, 500px); min-height: 0; }
-  body:not(.race-mode) .control-panel {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 22px;
-  }
-  body:not(.race-mode) .scoreboard-panel { border-top: 0; border-left: 1px solid var(--line); padding: 0 0 0 22px; margin: 0; }
-  body:not(.race-mode) .leaderboard { max-height: 320px; }
-  body.race-mode .layout {
-    height: calc(100dvh - 52px);
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) clamp(220px, 27dvh, 340px);
-    padding: 10px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-    gap: 10px;
-  }
-  body.race-mode .control-panel { position: relative; padding: 12px 14px; }
+  body.race-mode .stage-panel { display: block; height: 100%; min-height: 0; }
+  body.race-mode .viewport-wrap { height: 100%; min-height: 0; }
+  body.race-mode .control-panel { position: static; padding: 16px 12px 12px; }
   body.race-mode .scoreboard-panel { flex: 1; min-height: 0; }
-  body.race-mode .panel-title { margin: 0 100px 8px 0; justify-content: flex-start; gap: 10px; }
-  body.race-mode .panel-title h2 { font-size: 16px; }
-  body.race-mode .panel-title svg, body.race-mode .completion-track, body.race-mode .ranking-note { display: none; }
-  body.race-mode .leaderboard { flex: 1; max-height: none; }
-  body.race-mode .leaderboard li { min-height: 54px; padding-block: 7px; }
-  body.race-mode .racer-score { flex-direction: row; align-items: baseline; }
-  body.race-mode .racer-score small { display: none; }
-  body.race-mode #reset-race { position: absolute; top: 5px; right: 14px; width: 90px; margin: 0; }
+  body.race-mode .panel-title { margin: 0 0 14px; justify-content: space-between; }
+  body.race-mode .panel-title h2 { font-size: 17px; gap: 8px; }
+  body.race-mode .panel-title svg, body.race-mode .completion-track { display: block; }
+  body.race-mode .leaderboard { flex: 1; max-height: none; min-height: 0; overscroll-behavior: contain; }
+  body.race-mode .leaderboard li { grid-template-columns: 27px minmax(0, 1fr) auto; min-height: 62px; padding: 10px 9px; gap: 8px; margin-bottom: 6px; }
+  body.race-mode .rank { width: 27px; height: 29px; font-size: 11px; }
+  body.race-mode .racer-name { font-size: 13px; }
+  body.race-mode .racer-details { gap: 6px; }
+  body.race-mode .racer-stats { padding-left: 15px; font-size: 9px; }
+  body.race-mode .racer-score { flex-direction: column; align-items: flex-end; }
+  body.race-mode .racer-score b { font-size: 19px; }
+  body.race-mode .racer-score small { display: block; }
+  body.race-mode .score-track { left: 45px; }
+  body.race-mode .ranking-note { display: flex; font-size: 9px; }
+  body.race-mode #reset-race { position: static; width: 100%; min-height: 44px; margin-top: 12px; flex-shrink: 0; }
+  .event-feed { top: 78px; left: 16px; width: min(300px, calc(100% - 32px)); gap: 7px; }
+  .event-card { padding: 11px 12px 13px; gap: 10px; }
+  .event-emblem { width: 32px; height: 32px; font-size: 25px; }
+  .event-heading strong { font-size: 12px; }
+  .event-heading > span { font-size: 9px; }
+  .event-reward { margin-top: 6px; gap: 7px; }
+  .event-reward b { font-size: 22px; }
+  .event-reward small { font-size: 9px; }
+  .event-feed .is-rare .event-reward b { font-size: 20px; }
+  .result-actions button { min-height: 44px; }
 }
 
 /* Phones keep the action clear: no notification cards over the flight. */

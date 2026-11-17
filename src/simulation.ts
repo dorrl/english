@@ -1,14 +1,15 @@
 // Presentation time never enters the fixed-step simulation: hit-stop and camera
 // cuts can change the rhythm without changing a student's result.
 export type Vector = { x: number; y: number; z: number };
-export type SpecialKind = 'boost' | 'bonus' | 'drain' | 'magnet';
-export const SPECIAL_KINDS: SpecialKind[] = ['boost', 'bonus', 'drain', 'magnet'];
+export type SpecialKind = 'boost' | 'bonus' | 'drain' | 'magnet' | 'light' | 'reverse' | 'swap' | 'grow';
+export const SPECIAL_KINDS: SpecialKind[] = ['boost', 'bonus', 'drain', 'magnet', 'light', 'reverse', 'grow', 'swap'];
 export type Flight = {
   index: number; name: string; position: Vector; previous: Vector; velocity: Vector;
   launched: boolean; done: boolean; planets: number; distance: number; flightTime: number;
   seed: number; curve: { x: number; y: number; phase: number; frequency: number; kind: number };
   eventPoints: number; magnetLevel: number; specialCount: number; boostUntil: number;
   gravity: Vector; gravityTarget: number;
+  gravityFactor: number; reverseUntil: number; size: number; teleportVersion: number;
 };
 export type World = { position: Vector; radius: number; destroyed: boolean; special?: SpecialKind | null; index?: number; appearanceSeed?: number; previous?: Vector; velocity?: Vector };
 export type WorldLayout = World & { index: number; appearanceSeed: number };
@@ -50,11 +51,21 @@ export function compareFlights(a: Flight, b: Flight) {
 export function distancePoints(distance: number) {
   return Math.floor(Math.max(0, Math.min(FINISH_DISTANCE, distance)));
 }
+export function survivalRate(time: number) { return time < 30 ? 20 : time < 45 ? 30 : time < 60 ? 50 : 100; }
+export function survivalPoints(time: number = 0) {
+  // Completed seconds only; earlier seconds retain their original tier value.
+  const seconds = Math.floor(Math.max(0, time) + 1e-8);
+  return Math.min(seconds, 30) * 20 + Math.max(0, Math.min(seconds, 45) - 30) * 30
+    + Math.max(0, Math.min(seconds, 60) - 45) * 50 + Math.max(0, seconds - 60) * 100;
+}
+export function flightGravity(flight: Flight) {
+  return downwardAcceleration(flight.flightTime) * flight.gravityFactor * (flight.flightTime < flight.reverseUntil ? -1 : 1);
+}
 export function additionalPoints(flight: Pick<Flight, 'planets'> & Partial<Pick<Flight, 'eventPoints'>>) {
   return flight.planets * PLANET_POINTS + (flight.eventPoints || 0);
 }
-export function scoreFlight(flight: Pick<Flight, 'planets' | 'distance'> & Partial<Pick<Flight, 'eventPoints'>>) {
-  return additionalPoints(flight) + distancePoints(flight.distance);
+export function scoreFlight(flight: Pick<Flight, 'planets' | 'distance'> & Partial<Pick<Flight, 'eventPoints' | 'flightTime'>>) {
+  return additionalPoints(flight) + distancePoints(flight.distance) + survivalPoints(flight.flightTime);
 }
 export function createFlight(name: string, index: number, roundSeed = 0): Flight {
   const position = { x: -1 + 3.25 + (index % 6) * 1.38, y: .95 + Math.floor(index / 6) * .16, z: -.6 };
@@ -66,7 +77,7 @@ export function createFlight(name: string, index: number, roundSeed = 0): Flight
     frequency: .48 + random(seed + 829) * .32,
     kind: (index + Math.floor(random(roundSeed + 839) * 4)) % 4,
   };
-  return { index, name, position, previous: { ...position }, velocity: { x: 0, y: 0, z: 0 }, launched: false, done: false, planets: 0, distance: 0, flightTime: 0, seed, curve, eventPoints: 0, magnetLevel: 0, specialCount: 0, boostUntil: 0, gravity: { x: 0, y: 0, z: 0 }, gravityTarget: -1 };
+  return { index, name, position, previous: { ...position }, velocity: { x: 0, y: 0, z: 0 }, launched: false, done: false, planets: 0, distance: 0, flightTime: 0, seed, curve, eventPoints: 0, magnetLevel: 0, specialCount: 0, boostUntil: 0, gravity: { x: 0, y: 0, z: 0 }, gravityTarget: -1, gravityFactor: 1, reverseUntil: 0, size: 1, teleportVersion: 0 };
 }
 export function createWorldLayout(roundSeed = 0): WorldLayout[] {
   let state = (roundSeed ^ 0x91e10da5) >>> 0;
@@ -116,7 +127,8 @@ export function createWorldLayout(roundSeed = 0): WorldLayout[] {
         if (canPlace(candidate, radius)) { position = candidate; break; }
       }
       if (!position) throw new Error('Could not place the planet field with safe clearance');
-      const special = random(appearanceSeed + 181) < .14 ? SPECIAL_KINDS[Math.floor(random(appearanceSeed + 193) * 4)] : null;
+      const roll = random(appearanceSeed + 193);
+      const special = random(appearanceSeed + 181) < .14 ? (roll < .005 ? 'swap' : SPECIAL_KINDS[Math.min(6, Math.floor((roll - .005) / .995 * 7))]) : null;
       const world: WorldLayout = { index: worlds.length, appearanceSeed, position, radius, destroyed: false, special };
       worlds.push(world);
       const key = cellKey(Math.floor(position.x / cellSize), Math.floor(position.y / cellSize), Math.floor(position.z / cellSize));
@@ -173,8 +185,28 @@ export function triggerSpecial<T extends Flight>(kind: SpecialKind, actor: T, fl
     others.sort((a, b) => random(seed + a.seed * 17 + a.index * 83) - random(seed + b.seed * 17 + b.index * 83) || a.index - b.index);
     event.targets = others.slice(0, count); event.amount = -500;
     for (const target of event.targets) target.eventPoints -= 500;
-  } else {
+  } else if (kind === 'magnet') {
     actor.magnetLevel++; event.range = magnetRange(actor);
+  } else if (kind === 'light') {
+    actor.gravityFactor = Math.max(.35, actor.gravityFactor * .75); event.amount = Math.round((1 - actor.gravityFactor) * 100);
+  } else if (kind === 'reverse') {
+    actor.reverseUntil = actor.flightTime + 5; event.amount = 5;
+  } else if (kind === 'grow') {
+    actor.size = Math.min(2.2, actor.size * 1.25); event.amount = Math.round(actor.size * 100);
+  } else if (kind === 'swap') {
+    const others = flights.filter(f => f.index !== actor.index && f.launched && !f.done);
+    others.sort((a, b) => random(seed + a.seed * 17 + a.index * 83) - random(seed + b.seed * 17 + b.index * 83) || a.index - b.index);
+    const target = others[0];
+    if (target) {
+      const aScore = scoreFlight(actor), bScore = scoreFlight(target);
+      [actor.position, target.position] = [{ ...target.position }, { ...actor.position }];
+      [actor.distance, target.distance] = [target.distance, actor.distance];
+      actor.previous = { ...actor.position }; target.previous = { ...target.position };
+      actor.eventPoints += bScore - scoreFlight(actor); target.eventPoints += aScore - scoreFlight(target);
+      actor.teleportVersion++; target.teleportVersion++;
+      actor.gravityTarget = target.gravityTarget = -1;
+      event.targets = [target]; event.amount = bScore - aScore;
+    }
   }
   return event;
 }
@@ -187,7 +219,8 @@ export function planetGravity(position: Vector, world: World): Vector {
   if (world.destroyed || square < 1e-12 || square >= range * range) return { x: 0, y: 0, z: 0 };
   const distance = Math.sqrt(square), softening = Math.max(1.8, world.radius * .8);
   const edge = 1 - square / (range * range);
-  const raw = 90 * world.radius * world.radius / Math.pow(square + softening * softening, 1.5) * edge * edge;
+  const attraction = world.special ? 2 : 1;
+  const raw = 90 * attraction * world.radius * world.radius / Math.pow(square + softening * softening, 1.5) * edge * edge;
   const force = Math.min(40, raw * distance) / distance;
   return { x: x * force, y: y * force, z: z * force };
 }
@@ -287,10 +320,10 @@ export function stepFlights<T extends Flight, P extends World>(flights: T[], wor
       const strength = force.x * force.x + force.y * force.y + force.z * force.z;
       if (strength > strongest) { strongest = strength; f.gravityTarget = world.index ?? -1; }
     }
-    const magnitude = Math.hypot(gx, gy, gz), gravityScale = magnitude > 55 ? 55 / magnitude : 1;
+    const magnitude = Math.hypot(gx, gy, gz), gravityScale = (magnitude > 55 ? 55 / magnitude : 1) * f.gravityFactor;
     f.gravity.x = gx * gravityScale; f.gravity.y = gy * gravityScale; f.gravity.z = gz * gravityScale;
     f.velocity.x += (curveX + gx * gravityScale + centerAcceleration(f.position.x)) * STEP;
-    f.velocity.y += (curveY - downwardAcceleration(f.flightTime) + gy * gravityScale) * STEP;
+    f.velocity.y += (curveY - flightGravity(f) + gy * gravityScale) * STEP;
     f.velocity.z += gz * gravityScale * STEP;
     f.velocity.x *= Math.exp(-.022 * STEP);
     f.velocity.y *= Math.exp(-.015 * STEP);
@@ -301,10 +334,10 @@ export function stepFlights<T extends Flight, P extends World>(flights: T[], wor
     f.position.y += f.velocity.y * STEP;
     f.position.z += f.velocity.z * STEP;
     f.distance = Math.min(FINISH_DISTANCE, Math.max(f.distance, f.position.z));
-    for (const candidate of field.near(Math.min(f.previous.z, f.position.z) - field.maxRadius - 1, Math.max(f.previous.z, f.position.z) + field.maxRadius + 1)) {
+    for (const candidate of field.near(Math.min(f.previous.z, f.position.z) - field.maxRadius - .48 * f.size, Math.max(f.previous.z, f.position.z) + field.maxRadius + .48 * f.size)) {
       const world = candidate as P;
       if (world.destroyed) continue;
-      const reach = world.radius + .48;
+      const reach = world.radius + .48 * f.size;
       const previous = world.previous || world.position;
       const a = { x: f.previous.x - previous.x, y: f.previous.y - previous.y, z: f.previous.z - previous.z };
       const b = { x: f.position.x - world.position.x, y: f.position.y - world.position.y, z: f.position.z - world.position.z };
@@ -314,8 +347,9 @@ export function stepFlights<T extends Flight, P extends World>(flights: T[], wor
   }
   // Resolve contested planets in contact order rather than roster order.
   hits.sort((a, b) => a.t - b.t || a.flight.index - b.flight.index);
+  const displaced = new Set<number>();
   for (const { world, flight } of hits) {
-    if (world.destroyed) continue;
+    if (world.destroyed || displaced.has(flight.index)) continue;
     world.destroyed = true;
     flight.planets++;
     flight.velocity.x *= 1.13;
@@ -324,6 +358,7 @@ export function stepFlights<T extends Flight, P extends World>(flights: T[], wor
     limitSpeed(flight.velocity, MAX_SPEED);
     if (world.special) {
       const event = triggerSpecial(world.special, flight, flights, (world.appearanceSeed ?? world.index ?? 0) + flight.seed * 211 + flight.specialCount * 719);
+      if (event.kind === 'swap' && event.targets.length) { displaced.add(flight.index); displaced.add(event.targets[0].index); }
       onEvent?.(event);
     }
     onHit(world, flight);

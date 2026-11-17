@@ -1,0 +1,48 @@
+/* A compact live identity card, kept above the flight progress rail. */
+.flight-telemetry { gap: 12px; max-width: calc(100% - 150px); align-items: center; text-shadow: 0 2px 8px #000a; }
+.focus-rank {
+  --rank-tint: #91d4e5;
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 63px;
+  color: var(--rank-tint);
+  filter: drop-shadow(0 3px 9px #0009);
+}
+.focus-rank[data-podium="1"] { --rank-tint: #ffdb91; }
+.focus-rank[data-podium="2"] { --rank-tint: #d4e6f3; }
+.focus-rank[data-podium="3"] { --rank-tint: #e8b492; }
+.focus-rank svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.focus-rank svg > path:first-child { fill: #0a1929ed; stroke: var(--rank-tint); stroke-opacity: .65; stroke-width: 1.2; }
+.focus-rank svg > path:nth-child(2) { fill: var(--rank-tint); fill-opacity: .15; stroke: var(--rank-tint); stroke-width: 1.1; stroke-linejoin: round; }
+.focus-rank b { position: absolute; top: 42%; left: 0; width: 100%; display: flex; align-items: baseline; justify-content: center; gap: 2px; font: 650 25px/1 ui-monospace, monospace; letter-spacing: -.07em; }
+.focus-rank small { font: 9px/1 Arial, "Malgun Gothic", sans-serif; color: var(--rank-tint); opacity: .8; letter-spacing: 0; }
+.focus-copy { display: grid; gap: 7px; min-width: 0; }
+.focus-name-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.focus-name-row #focus-color { flex-shrink: 0; }
+.flight-telemetry .focus-name-row strong { max-width: 240px; font-size: 20px; line-height: 1.25; }
+.focus-stats { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; font-variant-numeric: tabular-nums; }
+#focus-score { color: #ecf5fc; font-size: 14px; font-weight: 600; white-space: nowrap; }
+#focus-distance { color: #a5c4d4; font: 12px ui-monospace, monospace; white-space: nowrap; }
+#focus-distance:before { content: ''; display: inline-block; height: 9px; width: 1px; background: #a4c5d84d; margin-right: 10px; }
+@media (max-width: 1366px) {
+  .flight-telemetry { gap: 10px; max-width: calc(100% - 105px); }
+  .focus-rank { width: 47px; height: 54px; }
+  .focus-rank b { font-size: 22px; }
+  .flight-telemetry .focus-name-row strong { max-width: 190px; font-size: 18px; }
+  #focus-score { font-size: 13px; }
+}
+@media (max-width: 599px) {
+  .flight-telemetry { max-width: calc(100% - 24px); gap: 8px; }
+  .focus-rank { width: 42px; height: 48px; }
+  .focus-rank b { font-size: 20px; }
+  .focus-rank small { font-size: 8px; }
+  .focus-copy { gap: 5px; }
+  .flight-telemetry .focus-name-row strong { max-width: 180px; font-size: 16px; }
+  #focus-score { font-size: 12px; }
+  #focus-distance { font-size: 11px; }
+}
