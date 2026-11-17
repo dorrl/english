@@ -27,7 +27,13 @@
             <div id="impact-flash" class="impact-flash"></div>
             <div id="target-reticle" class="target-reticle hidden" aria-hidden="true"><i></i></div>
             <div id="countdown" class="countdown hidden" aria-hidden="true">3</div>
-            <div class="flight-telemetry"><i id="focus-color"></i><strong id="focus-name"></strong><span id="focus-score">0점</span></div>
+            <div class="flight-telemetry">
+              <div id="focus-rank" class="focus-rank" role="img" aria-label="현재 순위">
+                <svg viewBox="0 0 64 72" fill="none" aria-hidden="true"><path d="M32 3 58 12v30c0 13-16 23-26 27C22 65 6 55 6 42V12L32 3Z"/><path d="m23 11 4 3 5-7 5 7 4-3-2 9H25l-2-9Z"/></svg>
+                <b><span id="focus-rank-value">—</span><small>등</small></b>
+              </div>
+              <div class="focus-copy"><div class="focus-name-row"><i id="focus-color"></i><strong id="focus-name"></strong></div><div class="focus-stats"><span id="focus-score">0점</span><span id="focus-distance">0m</span></div></div>
+            </div>
             <div class="power-meter" role="img" aria-label="배트 충전"><div class="power-track"><i id="charge-fill"></i></div></div>
             <div class="flight-progress" role="img" aria-label="비행 진행률"><i id="flight-fill"></i></div>
             <div id="winner-banner" class="winner-banner hidden" role="dialog" aria-modal="true" aria-labelledby="winner-name" aria-describedby="winner-rule">
@@ -39,8 +45,9 @@
                 </div>
                 <div class="winner-stats"><div><b id="winner-extra">+0</b><span>추가 점수</span></div><div><b id="winner-distance">0</b><span>거리 점수 · 1m = 1점</span></div></div>
                 <div class="winner-breakdown"><span>행성 파괴 <b id="winner-destruction">+0점</b></span><span>특수 이벤트 <b id="winner-events">+0점</b></span></div>
+                <div class="winner-survival"><span>생존 점수</span><b id="winner-survival">0점 · 0초</b></div>
                 <ol id="winner-podium" class="winner-podium" aria-label="최종 상위 3명"></ol>
-                <p id="winner-rule">총점 = 거리 점수 + 추가 점수 (행성·이벤트)</p>
+                <p id="winner-rule">총점 = 생존 + 거리 + 추가 점수</p>
                 <div class="result-actions"><button id="winner-replay" class="primary-button" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 15 10l-8 5.5Z"/></svg>다시 시작</button><button id="winner-close" class="result-reset" type="button">명단 수정</button></div>
               </article>
             </div>
@@ -56,9 +63,9 @@
           </div>
           <div class="scoreboard-panel">
             <div class="panel-title"><h2><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m4 7 4 4 4-7 4 7 4-4-2 11H6L4 7Z"/><path d="M8 21h8"/></svg>순위</h2><span id="roster-total" aria-label="참가 인원">00</span></div>
-            <ol id="leaderboard" class="leaderboard" aria-label="거리 점수와 추가 점수를 합산한 순위"><li class="empty-row">—</li></ol>
+            <ol id="leaderboard" class="leaderboard" aria-label="생존·거리·추가 점수를 합산한 순위"><li class="empty-row">—</li></ol>
             <div class="completion-track" aria-hidden="true"><i id="completion-fill"></i></div>
-            <div class="ranking-note"><span id="score-rule">거리 + 추가 점수</span><span>완주 <b id="finished-count">0 / 0</b></span></div>
+            <div class="ranking-note"><span id="score-rule">생존 + 거리 + 추가</span><span>완주 <b id="finished-count">0 / 0</b></span></div>
           </div>
           <button id="reset-race" class="secondary-button" type="button" disabled>처음으로</button>
         </aside>
@@ -78,15 +85,21 @@
           </div>
           <div class="guide-visual guide-scoring" data-guide-scene="2" aria-hidden="true" hidden>
             <div class="guide-score-parts"><div><span>행성 1개</span><strong><b data-guide-planet-points>150</b><small>점</small></strong></div><i>+</i><div><span>거리 1m</span><strong>1<small>점</small></strong></div></div>
-            <div class="guide-score-example">행성 4개 + 이벤트 1,000점 + 800m <span>→</span> <b id="guide-example-score">2,400점</b></div>
+            <div class="guide-score-example">생존 30초 + 행성 4개 + 이벤트 1,000점 + 800m <span>→</span> <b id="guide-example-score">3,000점</b></div>
           </div>
-          <div class="guide-visual guide-specials" data-guide-scene="3" aria-hidden="true" hidden>
+          <div class="guide-visual guide-survival" data-guide-scene="3" aria-hidden="true" hidden>
+            <div><span>0–30초</span><b>+20<small>점/초</small></b></div><div><span>30–45초</span><b>+30<small>점/초</small></b></div><div><span>45–60초</span><b>+50<small>점/초</small></b></div><div><span>60초 이후</span><b>+100<small>점/초</small></b></div>
+          </div>
+          <div class="guide-visual guide-specials" data-guide-scene="4" aria-hidden="true" hidden>
             <div><i>»</i><span>스피드 부스트<b>속도 +50%</b></span></div><div><i>+</i><span>보너스 점수<b>+1,000점</b></span></div><div><i>−</i><span>점수 파동<b>다른 학생 약 20% −500점</b></span></div><div><i>◎</i><span>자석 범위 확대<b>행성을 끌어오는 범위 증가</b></span></div>
+          </div>
+          <div class="guide-visual guide-specials guide-new-effects" data-guide-scene="5" aria-hidden="true" hidden>
+            <div><i>↓</i><span>중력 감소<b>획득할 때마다 −25% · 영구</b></span></div><div><i>↑</i><span>중력 반전<b>위쪽으로 당기는 중력 · 5초</b></span></div><div><i>⇄</i><span>운명 교환<b>드물게 상대와 위치·총점 교환</b></span></div><div><i>⊕</i><span>공 크기 증가<b>크기·충돌 범위 +25% · 영구</b></span></div>
           </div>
           <div class="guide-copy" aria-live="polite" aria-atomic="true"><span id="guide-step" class="guide-step">01 · 참가자</span><h2 id="guide-title">이름만 입력하면 준비 끝</h2><p id="guide-description">2–30명의 이름을 한 줄에 한 명씩 입력하세요. 각자 고유한 색의 공을 받습니다.</p><p id="guide-detail" class="guide-detail">시작을 누르면 한 번의 스윙으로 모든 공이 함께 출발해요.</p></div>
         </div>
         <footer class="guide-footer">
-          <div class="guide-navigation"><div class="guide-dots" aria-hidden="true"><i class="is-current"></i><i></i><i></i><i></i></div><div class="guide-actions"><button id="guide-back" class="guide-back" type="button" disabled>이전</button><button id="guide-next" class="primary-button" type="button">다음 <span aria-hidden="true">→</span></button></div></div>
+          <div class="guide-navigation"><div class="guide-dots" aria-hidden="true"><i class="is-current"></i><i></i><i></i><i></i><i></i><i></i></div><div class="guide-actions"><button id="guide-back" class="guide-back" type="button" disabled>이전</button><button id="guide-next" class="primary-button" type="button">다음 <span aria-hidden="true">→</span></button></div></div>
           <label class="guide-remember"><input id="guide-remember" type="checkbox">다음부터 보지 않기</label>
         </footer>
       </div>

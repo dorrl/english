@@ -293,7 +293,7 @@ function runRound(count, frameRate, pauses = false, seed = 0) {
   assert.equal(racers.reduce((sum, r) => sum + r.planets, 0), hits);
   assert.ok(hits > 0);
   assert.ok(racers.some(r => r.flightTime > 18), 'the extended map produces a longer show');
-  assert.ok(racers.every(r => scoreFlight(r) === additionalPoints(r) + Math.floor(r.distance)));
+  assert.ok(racers.every(r => scoreFlight(r) === additionalPoints(r) + Math.floor(r.distance) + sim.survivalPoints(r.flightTime)));
   if (count === 30) assert.ok(Math.max(...racers.map(r=>r.distance)) - Math.min(...racers.map(r=>r.distance)) > 500, 'launch variation makes distance points meaningful');
   return racers.map(r => ({ index: r.index, name: r.name, planets: r.planets, distance: r.distance, flightTime: r.flightTime, eventPoints: r.eventPoints, magnetLevel: r.magnetLevel, specialCount: r.specialCount, score: scoreFlight(r) }));
 }

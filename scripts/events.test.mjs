@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import ts from 'typescript';
 const source = await readFile(new URL('../src/simulation.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { STEP, FINISH_DISTANCE, WORLD_COUNT, MAX_SPEED, GRAVITY, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, LAUNCH_SPEED_MULTIPLIER, CENTER_PULL_START, MAX_CENTER_PULL, centerAcceleration, downwardAcceleration, createFlight, createWorldLayout, launchFlight, random, additionalPoints, scoreFlight, planetGravity, triggerSpecial, magnetRange, resetWorldField, stepFlights } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+const { STEP, FINISH_DISTANCE, WORLD_COUNT, MAX_SPEED, GRAVITY, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, LAUNCH_SPEED_MULTIPLIER, CENTER_PULL_START, MAX_CENTER_PULL, centerAcceleration, downwardAcceleration, flightGravity, survivalPoints, survivalRate, createFlight, createWorldLayout, launchFlight, random, additionalPoints, scoreFlight, planetGravity, triggerSpecial, magnetRange, resetWorldField, stepFlights } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
 const eventSource = await readFile(new URL('../src/special-events.ts', import.meta.url), 'utf8');
 const eventCode = ts.transpileModule(eventSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const { EventFeed, eventDescription } = await import('data:text/javascript;base64,' + Buffer.from(eventCode).toString('base64'));
@@ -90,15 +90,96 @@ test('special planets are reproducible, varied and distributed across the 10000m
   const worlds = createWorldLayout(491), specials = worlds.filter(w => w.special);
   assert.equal(FINISH_DISTANCE, 10000); assert.equal(worlds.length, WORLD_COUNT);
   assert.ok(specials.length > WORLD_COUNT * .1 && specials.length < WORLD_COUNT * .18);
-  for (const kind of ['boost', 'bonus', 'drain', 'magnet']) assert.ok(specials.filter(w => w.special === kind).length > 45);
+  for (const kind of ['boost', 'bonus', 'drain', 'magnet','light','reverse','grow']) assert.ok(specials.filter(w => w.special === kind).length > 45);
+  const rare=specials.filter(w=>w.special==='swap').length;
+  assert.ok(rare>0&&rare<specials.length*.02,'swap planets are much rarer than every other effect');
   for (let sector = 0; sector < 20; sector++) assert.ok(specials.some(w => w.position.z >= sector * 500 && w.position.z < (sector + 1) * 500));
   assert.deepEqual(worlds, createWorldLayout(491));
+});
+
+test('survival points accumulate completed seconds at each tier without repricing earlier seconds', () => {
+  for(const [time,points] of [[0,0],[.99,0],[1,20],[29.99,580],[30,600],[31,630],[44.99,1020],[45,1050],[46,1100],[60,1800],[61,1900],[70,2800]]) assert.equal(survivalPoints(time),points);
+  assert.deepEqual([0,30,45,60].map(survivalRate),[20,30,50,100]);
+  const f=flight(); f.flightTime=60; f.planets=2; f.distance=300; f.eventPoints=-500;
+  assert.equal(scoreFlight(f),1800+300+300-500);
+  f.done=true; const score=scoreFlight(f); for(let i=0;i<240;i++) stepFlights([f],[],()=>{});
+  assert.equal(scoreFlight(f),score,'finished students cannot farm survival points');
+});
+
+test('permanent gravity reduction stacks safely and reverse gravity expires after five simulation seconds', () => {
+  const f=flight(); triggerSpecial('light',f,[f],1); assert.equal(f.gravityFactor,.75);
+  const normal=flight(); stepFlights([f,normal],[],()=>{}); assert.ok(f.velocity.y>normal.velocity.y);
+  for(let i=0;i<20;i++) triggerSpecial('light',f,[f],i);
+  assert.equal(f.gravityFactor,.35);
+  f.flightTime=40; triggerSpecial('reverse',f,[f],2);
+  assert.equal(f.reverseUntil,45); assert.ok(flightGravity(f)<0);
+  f.flightTime=44.999; assert.ok(flightGravity(f)<0);
+  f.flightTime=45; assert.ok(flightGravity(f)>0); assert.equal(f.gravityFactor,.35);
+});
+
+test('growth increases physical collision radius, caps size and keeps new rounds unmodified', () => {
+  const grown=flight(0,1.9),small=flight(1,1.9);
+  for(let i=0;i<3;i++) triggerSpecial('grow',grown,[grown],i);
+  const worlds=[world(0,0,.4,1)],other=[world(0,0,.4,1)];
+  stepFlights([grown],worlds,()=>{}); stepFlights([small],other,()=>{});
+  assert.equal(grown.planets,1); assert.equal(small.planets,0);
+  for(let i=0;i<20;i++) triggerSpecial('grow',grown,[grown],i);
+  assert.equal(grown.size,2.2);
+  const fresh=createFlight('fresh',0); assert.equal(fresh.size,1); assert.equal(fresh.gravityFactor,1); assert.equal(fresh.reverseUntil,0);
+});
+
+test('swap exchanges exact totals and positions while retaining identities, upgrades and survival clocks', () => {
+  const a=flight(0,5,100),b=flight(1,-10,500),done=flight(2); done.done=true;
+  Object.assign(a,{planets:3,distance:150,eventPoints:-500,flightTime:35,gravityFactor:.75,size:1.25});
+  Object.assign(b,{planets:1,distance:550,eventPoints:1000,flightTime:61});
+  const before=[scoreFlight(a),scoreFlight(b)],positions=[{...a.position},{...b.position}];
+  const event=triggerSpecial('swap',a,[done,b,a],72);
+  assert.deepEqual(event.targets,[b]); assert.deepEqual([scoreFlight(a),scoreFlight(b)],before.reverse());
+  assert.deepEqual(a.position,positions[1]); assert.deepEqual(b.position,positions[0]);
+  assert.deepEqual(a.previous,a.position); assert.deepEqual(b.previous,b.position);
+  assert.equal(a.flightTime,35); assert.equal(b.flightTime,61); assert.equal(a.gravityFactor,.75); assert.equal(a.size,1.25); assert.equal(a.planets,3);
+  assert.equal(a.teleportVersion,1); assert.equal(b.teleportVersion,1);
+  const score=scoreFlight(a); assert.equal(triggerSpecial('swap',a,[a,done],1).targets.length,0); assert.equal(scoreFlight(a),score);
+});
+
+test('teleporting invalidates contacts from the old positions without sweeping across the map', () => {
+  const a=flight(0),b=flight(1,0,1000),worlds=[world(0,0,.4,1,'swap'),world(0,0,1000.4,1,'bonus')];
+  worlds[1].index=1; const events=[];
+  stepFlights([a,b],worlds,()=>{},e=>events.push(e.kind));
+  assert.deepEqual(events,['swap']); assert.equal(worlds[1].destroyed,false,'the target cannot claim its pre-swap collision');
+  stepFlights([a,b],worlds,()=>{},e=>events.push(e.kind));
+  assert.deepEqual(events,['swap','bonus']); assert.equal(a.planets,2);
+});
+
+test('new upgrades, timed reversal, swaps and survival scores stay deterministic across render frame rates', () => {
+  function run(fps) {
+    const a=flight(0,0,100),b=flight(1,10,300),flights=[a,b],empty=[];
+    a.position.y=b.position.y=90;
+    const schedule=[[.5,'light'],[1,'reverse'],[2,'grow'],[3,'swap']], fired=new Set();
+    let acc=0;
+    for(let frame=0;frame<fps*12;frame++) {
+      acc+=1/fps;
+      while(acc+1e-12>=STEP) {
+        for(const [time,kind] of schedule) if(a.flightTime+1e-9>=time&&!fired.has(kind)) { triggerSpecial(kind,a,flights,98); fired.add(kind); }
+        stepFlights(flights,empty,()=>{}); acc-=STEP;
+      }
+    }
+    assert.equal(fired.size,4);
+    return flights.map(f=>({position:f.position,velocity:f.velocity,score:scoreFlight(f),time:f.flightTime,gravity:f.gravityFactor,size:f.size,reverseUntil:f.reverseUntil}));
+  }
+  assert.deepEqual(run(30),run(60)); assert.deepEqual(run(144),run(60));
 });
 
 test('planet gravity points at the center, fades continuously and has no singularity', () => {
   const w = world(0, 0, 0), radius = 12 + w.radius * 3;
   const left = planetGravity({ x: -8, y: 0, z: 0 }, w), right = planetGravity({ x: 8, y: 0, z: 0 }, w);
   assert.ok(left.x > 0); assert.equal(left.x, -right.x); assert.equal(left.y, 0);
+  for(const kind of ['boost','bonus','drain','magnet','light','reverse','swap','grow']) {
+    const special=world(0,0,0,3,kind);
+    assert.deepEqual(planetGravity({x:-8,y:0,z:0},special),{x:left.x*2,y:0,z:0},'special planets attract twice as strongly before the safety cap');
+    assert.ok(Math.hypot(...Object.values(planetGravity({x:-3,y:0,z:0},special)))<=40);
+    assert.deepEqual(planetGravity({x:radius,y:0,z:0},special),{x:0,y:0,z:0},'range remains unchanged');
+  }
   assert.ok(planetGravity({ x: 0, y: -8, z: 0 }, w).y > 0);
   assert.ok(planetGravity({ x: 0, y: 0, z: -8 }, w).z > 0);
   assert.deepEqual(planetGravity({ x: radius, y: 0, z: 0 }, w), { x: 0, y: 0, z: 0 });
@@ -273,6 +354,40 @@ test('event notices queue every actor, expose actual target counts, and allow re
     feed.clear(); feed.setCompact(false);
     for(const actor of flights.slice(0,3)) feed.push({kind:'bonus',actor,targets:[],amount:1000,range:0});
     feed.update(0); assert.equal(list.children.length,3,'desktop capacity is restored after expanding');
+    feed.clear(); feed.setCompact(true);
+    const swap={kind:'swap',actor:flights[0],targets:[flights[1]],amount:300,range:0};
+    feed.push(wave); feed.update(0); feed.push(swap); feed.update(0);
+    assert.equal(list.children.length,1); assert.ok(list.children[0].classes.has('is-rare'));
+    assert.equal(eventDescription(swap),'학생 1과 위치·점수 교환');
+    feed.update(3.5); assert.ok(list.children[0].classes.has('is-rare'),'rare notice outlasts a regular compact card');
+    assert.equal(feed.readyForResults,false);
+    feed.update(3.1); assert.equal(list.children.length,1); assert.ok(!list.children[0].classes.has('is-rare'),'deferred student event is preserved');
+    feed.clear(); feed.setCompact(false); feed.push(swap); feed.update(0); feed.update(6.6);
+    assert.equal(list.children.length,1); assert.equal(feed.readyForResults,false,'winner reveal waits for the full rare notice');
+    feed.update(1.5); assert.equal(feed.readyForResults,true);
+    for(const [threshold,rate] of [[30,30],[45,50],[60,100]]) {
+      feed.clear(); feed.notifyGravity(threshold,threshold);
+      const words=node=>[node.textContent||'',...node.children.flatMap(words)];
+      assert.ok(words(list.children[0]).includes(`${threshold}초 경과`));
+      assert.ok(words(list.children[0]).includes(`생존 +${rate}점/초`));
+    }
+    feed.clear(); feed.setCompact(true,2);
+    for(const actor of flights) feed.push({kind:'bonus',actor,targets:[],amount:1000,range:0});
+    feed.update(0); assert.equal(list.children.length,2,'tablet shows two simultaneous notices');
+    feed.notifyGravity(30,30); feed.update(0);
+    assert.equal(list.children.length,2,'milestone shares the tablet rail with a student event');
+    feed.push(swap); feed.update(0);
+    assert.equal(list.children.length,2,'rare notice preserves the two-slot tablet limit');
+    assert.ok(list.children[0].classes.has('is-rare'));
+    seen.clear();
+    feed.setCompact(true,1); assert.equal(list.children.length,1,'rotating down to phone width retains only one card');
+    feed.setCompact(true,2); feed.update(0); assert.equal(list.children.length,2,'expanding restores two cards without changing compact mode');
+    for(let i=0;i<100;i++) {
+      for(const node of list.children) for(const name of actors(node)) if(name.startsWith('학생')) seen.add(name);
+      feed.update(.25); assert.ok(list.children.length<=2);
+    }
+    assert.equal(seen.size,7,'tablet resizing and priority alerts never discard queued student events');
+    assert.equal(feed.readyForResults,true);
   } finally {
     if (previous === undefined) delete globalThis.document; else globalThis.document = previous;
   }

@@ -238,6 +238,8 @@ export class Arena {
     const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glow, color, transparent: true, opacity: .5, depthWrite: false, blending: THREE.AdditiveBlending })); aura.scale.set(2.4, 2.4, 1); mesh.add(aura);
     const magnet = new THREE.Mesh(magnetAuraGeometry, new THREE.MeshBasicMaterial({ color: SPECIAL_STYLE.magnet.color, transparent: true, opacity: .55, depthWrite: false, blending: THREE.AdditiveBlending }));
     magnet.name = 'magnet-aura'; magnet.visible = false; mesh.add(magnet);
+    const gravity = new THREE.Mesh(magnetAuraGeometry, new THREE.MeshBasicMaterial({ color: SPECIAL_STYLE.light.color, transparent: true, opacity: .65, depthWrite: false, blending: THREE.AdditiveBlending }));
+    gravity.name = 'gravity-aura'; gravity.visible = false; gravity.scale.setScalar(.8); mesh.add(gravity);
     return mesh;
   }
 }

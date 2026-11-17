@@ -1,0 +1,59 @@
+.winner-survival { display: flex; justify-content: space-between; gap: 12px; padding-top: 12px; font-size: 11px; color: #a9c1ca; }
+.winner-survival b { color: #9cebd0; font-variant-numeric: tabular-nums; }
+.event-feed .is-rare .event-card {
+  border: 1px solid #ffe2a384;
+  background: radial-gradient(ellipse at 10% 0, #d5a14944, transparent 70%), linear-gradient(120deg, #342c43f7, #172037f7);
+  box-shadow: 0 0 22px #eabd6629, inset 0 0 22px #f2c57a12;
+}
+.event-feed .is-rare .event-emblem { box-shadow: 0 0 17px #ffe0a355; animation: rareOrbit 2s ease-in-out infinite; }
+.event-feed .is-rare .event-life i { background: linear-gradient(90deg, #cdaaff, #ffe5a4, #83efff); }
+.event-feed .is-rare .event-reward small { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.game-guide[open] .guide-visual:not([hidden]) { animation: guideSceneIn .5s ease both; }
+.game-guide[open] .guide-roster > span { animation: guideRosterFloat 3s ease-in-out infinite; }
+.game-guide[open] .guide-roster > span:nth-child(2) { animation-delay: -.8s; }
+.game-guide[open] .guide-roster > span:nth-child(3) { animation-delay: -1.6s; }
+.game-guide[open] .guide-flight circle[cx="262"] { animation: guideBallFlight 3.4s cubic-bezier(.3, 0, .7, 1) infinite; }
+.game-guide[open] .guide-flight ellipse { transform-origin: 340px 85px; animation: guidePlanetPulse 3.4s ease-in-out infinite; }
+.game-guide[open] .guide-score-parts strong { animation: guidePointsPulse 2.8s ease-in-out infinite; }
+.game-guide[open] .guide-specials i { display: inline-grid; place-items: center; min-width: 30px; animation: guideEffectFloat 2.8s ease-in-out infinite; }
+.game-guide[open] .guide-specials > div:nth-child(2) i { animation-delay: -.7s; }
+.game-guide[open] .guide-specials > div:nth-child(3) i { animation-delay: -1.4s; }
+.game-guide[open] .guide-new-effects > div:nth-child(1) i { color: #8dffd1; }
+.game-guide[open] .guide-new-effects > div:nth-child(2) i { color: #9bbcff; animation-name: guideReverse; }
+.game-guide[open] .guide-new-effects > div:nth-child(3) i { color: #ffdd86; animation-name: guideSwap; }
+.game-guide[open] .guide-new-effects > div:nth-child(4) i { color: #ffb58c; animation-name: guideGrow; }
+.guide-visual.guide-survival { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-content: center; padding: 22px; }
+.game-guide .guide-visual[hidden] { display: none; }
+.guide-survival > div { border: 1px solid #8de4c82d; border-radius: 12px; padding: 12px 15px; background: #72e5c008; }
+.guide-survival span { display: block; font-size: 11px; color: #a3bfca; }
+.guide-survival b { display: block; margin-top: 8px; font-size: 26px; color: #a5f0d9; font-variant-numeric: tabular-nums; }
+.guide-survival small { font-size: 10px; margin-left: 4px; color: #9ebac4; }
+.game-guide[open] .guide-survival > div { animation: guideTier 8s ease-in-out infinite; }
+.game-guide[open] .guide-survival > div:nth-child(2) { animation-delay: 2s; }
+.game-guide[open] .guide-survival > div:nth-child(3) { animation-delay: 4s; }
+.game-guide[open] .guide-survival > div:nth-child(4) { animation-delay: 6s; }
+@keyframes guideSceneIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes guideRosterFloat { 0%, 100% { translate: 0 0; } 50% { translate: 0 -5px; } }
+@keyframes guideBallFlight { 0% { transform: translate(-205px, 52px); opacity: 0; } 12% { opacity: 1; } 74% { transform: translate(64px, -5px); opacity: 1; } 90%, 100% { transform: translate(84px, -12px) scale(1.2); opacity: 0; } }
+@keyframes guidePlanetPulse { 0%, 60%, 100% { opacity: .65; } 76% { opacity: 1; filter: drop-shadow(0 0 9px #ffd597); } }
+@keyframes guidePointsPulse { 0%, 100% { opacity: .65; } 50% { opacity: 1; text-shadow: 0 0 20px #edc89155; } }
+@keyframes guideEffectFloat { 0%, 100% { transform: translateY(2px); } 50% { transform: translateY(-4px); } }
+@keyframes guideReverse { 0%, 100% { transform: translateY(5px); } 50% { transform: translateY(-9px); } }
+@keyframes guideSwap { 0%, 100% { transform: translateX(-4px); } 50% { transform: translateX(5px); text-shadow: 0 0 12px #ffd78b; } }
+@keyframes guideGrow { 0%, 100% { transform: scale(.85); } 50% { transform: scale(1.25); } }
+@keyframes guideTier { 0%, 24% { border-color: #93f1cbad; background: #72e5c01d; } 26%, 100% { border-color: #8de4c82d; background: #72e5c008; } }
+@keyframes rareOrbit { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.4); } }
+@media (max-width: 599px) {
+  .event-feed .is-rare .event-card { padding-block: 7px 9px; }
+  .event-feed .is-rare .event-reward b { font-size: 17px; }
+  .event-feed .is-rare .event-reward small { max-width: 130px; }
+}
+@media (max-width: 480px), (max-height: 720px) {
+  .guide-visual.guide-survival { gap: 8px; padding: 12px; }
+  .guide-survival > div { padding: 8px 12px; }
+  .guide-survival b { font-size: 21px; margin-top: 4px; }
+  .guide-survival span { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-guide[open] *, .event-feed .is-rare * { animation: none !important; }
+}

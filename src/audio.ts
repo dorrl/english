@@ -87,8 +87,8 @@ export class Sound {
   }
 
   winner() { this.play('winner', .8, 1, 0, 4); }
-  special(kind: 'boost' | 'bonus' | 'drain' | 'magnet') {
-    this.play('ready', .5, { boost: 1.2, bonus: 1.5, drain: .7, magnet: .9 }[kind], 0, 3);
+  special(kind: 'boost' | 'bonus' | 'drain' | 'magnet' | 'light' | 'reverse' | 'swap' | 'grow') {
+    this.play(kind === 'swap' ? 'winner' : 'ready', kind === 'swap' ? .65 : .5, { boost: 1.2, bonus: 1.5, drain: .7, magnet: .9, light: 1.1, reverse: 1.3, swap: 1.15, grow: .8 }[kind], 0, 3);
   }
   stop() {
     for (const voice of this.voices) { try { voice.source.stop(); } catch {} this.release(voice); }
