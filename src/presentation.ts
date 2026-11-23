@@ -7,3 +7,17 @@ export function impactFeedback(onScreen: boolean, reducedMotion: boolean) {
     volume: onScreen ? 1 : .18,
   };
 }
+
+function fadeIn(speed: number, start: number, end: number) {
+  const t = Math.max(0, Math.min(1, (speed - start) / (end - start)));
+  return t * t * (3 - 2 * t);
+}
+
+export function speedEffectProfile(speed: number) {
+  return {
+    glow: fadeIn(speed, 65, 125),
+    wake: fadeIn(speed, 100, 165),
+    shock: fadeIn(speed, 145, 205),
+    flare: fadeIn(speed, 185, 255),
+  };
+}

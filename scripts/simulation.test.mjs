@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { Texture, Vector3 } from 'three';
 
 const source = await readFile(new URL('../src/simulation.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
@@ -10,7 +11,14 @@ const sim = await import(simulationUrl);
 const { STEP, FINISH_DISTANCE, WORLD_COUNT, WORLD_SECTORS, WORLD_HALF_WIDTH, additionalPoints, compareFlights, contactTime, createFlight, createWorldLayout, distancePoints, launchFlight, parseNames, scoreFlight, stepFlights } = sim;
 const presentationSource = await readFile(new URL('../src/presentation.ts', import.meta.url), 'utf8');
 const presentationCode = ts.transpileModule(presentationSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { impactFeedback } = await import('data:text/javascript;base64,' + Buffer.from(presentationCode).toString('base64'));
+const presentationUrl = 'data:text/javascript;base64,' + Buffer.from(presentationCode).toString('base64');
+const { impactFeedback } = await import(presentationUrl);
+const speedEffectSource = await readFile(new URL('../src/ball-speed-effect.ts', import.meta.url), 'utf8');
+const speedEffectCode = ts.transpileModule(speedEffectSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText
+  .replace("'three'", JSON.stringify(import.meta.resolve('three')))
+  .replace("'./presentation'", JSON.stringify(presentationUrl))
+  .replace("'./simulation'", JSON.stringify(simulationUrl));
+const { BallSpeedEffect } = await import('data:text/javascript;base64,' + Buffer.from(speedEffectCode).toString('base64'));
 const directorSource = await readFile(new URL('../src/camera-director.ts', import.meta.url), 'utf8');
 const directorCode = ts.transpileModule(directorSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const { CameraDirector } = await import('data:text/javascript;base64,' + Buffer.from(directorCode).toString('base64'));
@@ -25,6 +33,62 @@ function batPoint(pose, length=9.5) {
   const [x,y,z]=pose.rotation;
   return [pose.position[0]+length*Math.cos(y)*Math.cos(z), pose.position[1]+length*(Math.sin(x)*Math.sin(y)*Math.cos(z)+Math.cos(x)*Math.sin(z)), pose.position[2]+length*(-Math.cos(x)*Math.sin(y)*Math.cos(z)+Math.sin(x)*Math.sin(z))];
 }
+test('ball effects reveal the wake and shock arcs at different speeds and warm up at the highest speeds', () => {
+  const flight = createFlight('speed', 0);
+  const texture = new Texture(), effect = new BallSpeedEffect(0x64e4ff, texture);
+  const halo = effect.getObjectByName('speed-glow');
+  const wake = effect.getObjectByName('speed-wake');
+  const arcs = effect.getObjectByName('speed-shock-arcs');
+  flight.velocity.z = 85;
+  assert.equal(effect.update(flight, 0, false), 0);
+  assert.equal(effect.visible, false, 'effects stay hidden before launch');
+  launchFlight(flight);
+  flight.velocity = { x: 0, y: 0, z: 85 };
+  const slow = effect.update(flight, 0, false);
+  assert.ok(effect.visible && halo.material.opacity > 0 && !wake.visible && !arcs.visible);
+  flight.velocity.z = 125;
+  assert.ok(effect.update(flight, 0, false) > slow && wake.visible && !arcs.visible);
+  flight.velocity.z = 180;
+  effect.update(flight, 0, false);
+  assert.ok(wake.visible && arcs.visible && arcs.material.opacity > 0);
+  const mediumLength = wake.scale.z, arcColor = arcs.material.color.getHex();
+  flight.velocity.z = 320;
+  effect.update(flight, 0, false);
+  assert.ok(wake.scale.z > mediumLength);
+  assert.notEqual(arcs.material.color.getHex(), arcColor);
+  const opacity = arcs.material.opacity;
+  effect.update(flight, 4, true);
+  assert.ok(arcs.material.opacity < opacity);
+  assert.equal(arcs.rotation.z, 0);
+  flight.done = true;
+  effect.update(flight, 4, false);
+  assert.equal(effect.visible, false);
+  effect.dispose();
+  texture.dispose();
+});
+
+test('speed effects follow the actual flight direction including vertical and assisted forward speed', () => {
+  const flight = createFlight('speed', 0);
+  const texture = new Texture(), effect = new BallSpeedEffect(0x64e4ff, texture);
+  launchFlight(flight);
+  flight.velocity = { x: 0, y: 0, z: 90 };
+  const slow = effect.update(flight, 0, false);
+  flight.velocity.y = 160;
+  const up = effect.update(flight, 0, false);
+  assert.ok(up > slow);
+  assert.ok(new Vector3(0, 0, 1).applyQuaternion(effect.quaternion).y > 0);
+  flight.velocity.y = -160;
+  assert.equal(effect.update(flight, 0, false), up);
+  assert.ok(new Vector3(0, 0, 1).applyQuaternion(effect.quaternion).y < 0);
+  flight.catchUp = 1;
+  const before = structuredClone(flight);
+  assert.ok(effect.update(flight, 0, false) > up);
+  const direction = new Vector3(0, 0, 1).applyQuaternion(effect.quaternion);
+  assert.ok(direction.distanceTo(new Vector3(0, -160, 180).normalize()) < 1e-10);
+  assert.deepEqual(flight, before, 'drawing the effect cannot alter the flight or score');
+  effect.dispose();
+  texture.dispose();
+});
 test('bat crosses the launch plane forward at the exact contact pose', () => {
   const pose=sampleBatPose('swing',BAT_TIMING.contact), contact=batPoint(pose);
   assert.deepEqual(contact,[8.5,1.05,-.6]);

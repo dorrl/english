@@ -17,6 +17,10 @@ On entry, an optional animated six-step guide explains name entry, automatic fli
 
 ## Show structure
 
+- A quiet UI theme in `src/clean-ui.css` uses flat panels, restrained borders and compact score rows, retaining tablet/phone layouts and the focused ball's rank/score/distance card.
+- Catch-up assistance uses each ball's actual 3D separation from the current score leader (including a finished leader). The leader receives none. At 500 m or less there is no assistance; from 500–2,000 m it scales linearly to 50% less global/planetary gravity and twice the forward movement speed. Only Z movement receives the speed multiplier; vertical and lateral velocities are never multiplied. Assistance is recomputed from a pre-step snapshot and fades as the gap closes, composes with permanent gravity upgrades, and respects the existing 900 m/s total effective-speed ceiling. Camera tracking and collision sweeps use the effective forward motion. These rules are intentionally omitted from the tutorial.
+- Ball speed effects respond to the full effective 3D velocity. Color-matched glow fades in above 65 m/s, tapered streaks above 100 m/s, curved shock arcs above 145 m/s, and warm highlights above 185 m/s. The streaks and arcs align to the flight vector. Each ball reuses three lightweight objects and shared geometry, and reduced motion dims the effects and stops the arcs from rotating.
+
 - The lower-left flight HUD shows the camera subject's live overall rank in a shield badge, name, score and forward distance in meters. Rank uses the same tie-breaks as the sidebar; top three badges use gold, silver and bronze. The badge animates on subject/rank changes, respects reduced motion, and uses a separate compact number row to keep the crown clear of the digits on phones.
 
 - Special planets attract balls with twice the gravitational strength of equal-sized normal planets, within the same attraction range. The per-planet 40 m/s² and summed 55 m/s² acceleration caps still apply, along with each ball's permanent gravity reduction.
