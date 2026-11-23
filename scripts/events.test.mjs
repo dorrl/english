@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import ts from 'typescript';
 const source = await readFile(new URL('../src/simulation.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { STEP, FINISH_DISTANCE, WORLD_COUNT, MAX_SPEED, GRAVITY, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, LAUNCH_SPEED_MULTIPLIER, CENTER_PULL_START, MAX_CENTER_PULL, centerAcceleration, downwardAcceleration, flightGravity, survivalPoints, survivalRate, createFlight, createWorldLayout, launchFlight, random, additionalPoints, scoreFlight, planetGravity, triggerSpecial, magnetRange, resetWorldField, stepFlights } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
+const { STEP, FINISH_DISTANCE, WORLD_COUNT, MAX_SPEED, GRAVITY, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, LAUNCH_SPEED_MULTIPLIER, CENTER_PULL_START, MAX_CENTER_PULL, catchUpAmount, forwardSpeed, flightSpeed, centerAcceleration, downwardAcceleration, flightGravity, survivalPoints, survivalRate, createFlight, createWorldLayout, launchFlight, random, additionalPoints, scoreFlight, planetGravity, triggerSpecial, magnetRange, resetWorldField, stepFlights } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'));
 const eventSource = await readFile(new URL('../src/special-events.ts', import.meta.url), 'utf8');
 const eventCode = ts.transpileModule(eventSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
 const { EventFeed, eventDescription } = await import('data:text/javascript;base64,' + Buffer.from(eventCode).toString('base64'));
@@ -16,6 +16,45 @@ function flight(index = 0, x = 0, z = 0) {
   return f;
 }
 const world = (x, y, z, radius = 3, special = null) => ({ position: { x, y, z }, radius, special, destroyed: false, index: 0, appearanceSeed: 921 });
+
+test('catch-up ramps linearly between 500m and 2000m with bounded gravity and forward speed', () => {
+  for(const [gap,ratio] of [[0,0],[499,0],[500,0],[501,1/1500],[1250,.5],[2000,1],[3000,1]]) assert.equal(catchUpAmount(gap),ratio);
+  const f=flight(); f.catchUp=1; assert.equal(flightGravity(f),GRAVITY*.5); assert.equal(forwardSpeed(f),200);
+  f.gravityFactor=.75; assert.equal(flightGravity(f),GRAVITY*.75*.5);
+  f.reverseUntil=5; assert.equal(flightGravity(f),-GRAVITY*.75*.5);
+  f.velocity={x:100,y:-400,z:800}; assert.ok(flightSpeed(f)<=MAX_SPEED+1e-9);
+});
+
+test('catch-up uses the score leader and increases forward motion without multiplying vertical velocity', () => {
+  const leader=flight(0,0,2000),assisted=flight(1),baseline=flight(1);
+  leader.eventPoints=100000; leader.done=true;
+  assisted.velocity.y=baseline.velocity.y=-10;
+  stepFlights([leader,assisted],[],()=>{}); stepFlights([baseline],[],()=>{});
+  assert.equal(assisted.catchUp,1); assert.equal(leader.catchUp,0);
+  assert.equal(assisted.velocity.z,baseline.velocity.z,'base velocity is never repeatedly multiplied');
+  assert.equal(assisted.velocity.x,baseline.velocity.x);
+  assert.ok(Math.abs(assisted.velocity.y-baseline.velocity.y-GRAVITY*.5*STEP*Math.exp(-.015*STEP))<1e-12,'only reduced gravity changes vertical motion');
+  assert.ok(Math.abs(assisted.position.z-2*baseline.position.z)<1e-12);
+  assisted.position.z=1600; stepFlights([leader,assisted],[],()=>{});
+  assert.equal(assisted.catchUp,0,'assistance disappears when the gap closes');
+  const farther=flight(2,0,5000); farther.eventPoints=-100000;
+  const other=flight(3,0,1900); stepFlights([farther,other,leader],[],()=>{});
+  assert.equal(other.catchUp,0,'the farthest ball is not necessarily the score leader');
+});
+
+test('catch-up observes one snapshot per step and resets for unlaunched and finished balls', () => {
+  function run(reverse) {
+    const lead=flight(0,0,2300),a=flight(1),b=flight(2,40,900); lead.eventPoints=100000;
+    const flights=[lead,a,b],empty=[];
+    for(let i=0;i<240;i++) stepFlights(reverse?[...flights].reverse():flights,empty,()=>{});
+    return flights.map(f=>({position:f.position,velocity:f.velocity,catchUp:f.catchUp,score:scoreFlight(f)}));
+  }
+  assert.deepEqual(run(false),run(true));
+  const lead=flight(0,0,3000),f=flight(1); lead.eventPoints=100000; f.catchUp=1; f.done=true;
+  stepFlights([lead,f],[],()=>{}); assert.equal(f.catchUp,0);
+  f.done=false; f.launched=false; f.catchUp=1; stepFlights([lead,f],[],()=>{}); assert.equal(f.catchUp,0);
+  assert.equal(createFlight('new',0).catchUp,0);
+});
 
 test('gentle centering acts only outside the corridor and returns both sides smoothly', () => {
   for (const x of [0,30,-30,CENTER_PULL_START,-CENTER_PULL_START]) assert.equal(centerAcceleration(x),0);

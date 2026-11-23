@@ -10,6 +10,7 @@ export type Flight = {
   eventPoints: number; magnetLevel: number; specialCount: number; boostUntil: number;
   gravity: Vector; gravityTarget: number;
   gravityFactor: number; reverseUntil: number; size: number; teleportVersion: number;
+  catchUp: number;
 };
 export type World = { position: Vector; radius: number; destroyed: boolean; special?: SpecialKind | null; index?: number; appearanceSeed?: number; previous?: Vector; velocity?: Vector };
 export type WorldLayout = World & { index: number; appearanceSeed: number };
@@ -31,6 +32,13 @@ export const WORLD_SECTORS = 32;
 export const WORLD_HALF_WIDTH = 144;
 export const PLANET_POINTS = 150;
 export const MAX_SPEED = 900;
+export function catchUpAmount(distance: number) { return Math.max(0, Math.min(1, (distance - 500) / 1500)); }
+export function forwardSpeed(flight: Flight) {
+  // A reversible movement multiplier, never repeatedly multiplied into velocity.
+  const forwardLimit = Math.sqrt(Math.max(0, MAX_SPEED ** 2 - flight.velocity.x ** 2 - flight.velocity.y ** 2));
+  return Math.min(flight.velocity.z * (1 + flight.catchUp), forwardLimit);
+}
+export function flightSpeed(flight: Flight) { return Math.hypot(flight.velocity.x, flight.velocity.y, forwardSpeed(flight)); }
 export const CENTER_PULL_START = WORLD_HALF_WIDTH * .7;
 export const MAX_CENTER_PULL = .65;
 export function centerAcceleration(x: number) {
@@ -59,7 +67,7 @@ export function survivalPoints(time: number = 0) {
     + Math.max(0, Math.min(seconds, 60) - 45) * 50 + Math.max(0, seconds - 60) * 100;
 }
 export function flightGravity(flight: Flight) {
-  return downwardAcceleration(flight.flightTime) * flight.gravityFactor * (flight.flightTime < flight.reverseUntil ? -1 : 1);
+  return downwardAcceleration(flight.flightTime) * flight.gravityFactor * (1 - .5 * flight.catchUp) * (flight.flightTime < flight.reverseUntil ? -1 : 1);
 }
 export function additionalPoints(flight: Pick<Flight, 'planets'> & Partial<Pick<Flight, 'eventPoints'>>) {
   return flight.planets * PLANET_POINTS + (flight.eventPoints || 0);
@@ -77,7 +85,7 @@ export function createFlight(name: string, index: number, roundSeed = 0): Flight
     frequency: .48 + random(seed + 829) * .32,
     kind: (index + Math.floor(random(roundSeed + 839) * 4)) % 4,
   };
-  return { index, name, position, previous: { ...position }, velocity: { x: 0, y: 0, z: 0 }, launched: false, done: false, planets: 0, distance: 0, flightTime: 0, seed, curve, eventPoints: 0, magnetLevel: 0, specialCount: 0, boostUntil: 0, gravity: { x: 0, y: 0, z: 0 }, gravityTarget: -1, gravityFactor: 1, reverseUntil: 0, size: 1, teleportVersion: 0 };
+  return { index, name, position, previous: { ...position }, velocity: { x: 0, y: 0, z: 0 }, launched: false, done: false, planets: 0, distance: 0, flightTime: 0, seed, curve, eventPoints: 0, magnetLevel: 0, specialCount: 0, boostUntil: 0, gravity: { x: 0, y: 0, z: 0 }, gravityTarget: -1, gravityFactor: 1, reverseUntil: 0, size: 1, teleportVersion: 0, catchUp: 0 };
 }
 export function createWorldLayout(roundSeed = 0): WorldLayout[] {
   let state = (roundSeed ^ 0x91e10da5) >>> 0;
@@ -289,6 +297,11 @@ function moveMagnetWorlds<T extends Flight>(flights: T[], field: WorldField) {
 }
 
 export function stepFlights<T extends Flight, P extends World>(flights: T[], worlds: P[], onHit: (world: P, flight: T) => void, onEvent?: (event: SpecialEvent<T>) => void) {
+  // Snapshot the score leader and all gaps before advancing anyone, so roster
+  // iteration order cannot affect assistance. Finished leaders still set the rank.
+  const leader = flights.filter(f => f.launched).reduce<T | null>((best, f) => !best || compareFlights(f, best) < 0 ? f : best, null);
+  for (const f of flights) f.catchUp = leader && f !== leader && f.launched && !f.done
+    ? catchUpAmount(Math.hypot(leader.position.x - f.position.x, leader.position.y - f.position.y, leader.position.z - f.position.z)) : 0;
   let field = fields.get(worlds);
   if (!field) { field = new WorldField(worlds); fields.set(worlds, field); }
   moveMagnetWorlds(flights, field);
@@ -320,7 +333,7 @@ export function stepFlights<T extends Flight, P extends World>(flights: T[], wor
       const strength = force.x * force.x + force.y * force.y + force.z * force.z;
       if (strength > strongest) { strongest = strength; f.gravityTarget = world.index ?? -1; }
     }
-    const magnitude = Math.hypot(gx, gy, gz), gravityScale = (magnitude > 55 ? 55 / magnitude : 1) * f.gravityFactor;
+    const magnitude = Math.hypot(gx, gy, gz), gravityScale = (magnitude > 55 ? 55 / magnitude : 1) * f.gravityFactor * (1 - .5 * f.catchUp);
     f.gravity.x = gx * gravityScale; f.gravity.y = gy * gravityScale; f.gravity.z = gz * gravityScale;
     f.velocity.x += (curveX + gx * gravityScale + centerAcceleration(f.position.x)) * STEP;
     f.velocity.y += (curveY - flightGravity(f) + gy * gravityScale) * STEP;
@@ -332,7 +345,7 @@ export function stepFlights<T extends Flight, P extends World>(flights: T[], wor
     f.velocity.z = Math.max(24, f.velocity.z); limitSpeed(f.velocity, MAX_SPEED);
     f.position.x += f.velocity.x * STEP;
     f.position.y += f.velocity.y * STEP;
-    f.position.z += f.velocity.z * STEP;
+    f.position.z += forwardSpeed(f) * STEP;
     f.distance = Math.min(FINISH_DISTANCE, Math.max(f.distance, f.position.z));
     for (const candidate of field.near(Math.min(f.previous.z, f.position.z) - field.maxRadius - .48 * f.size, Math.max(f.previous.z, f.position.z) + field.maxRadius + .48 * f.size)) {
       const world = candidate as P;

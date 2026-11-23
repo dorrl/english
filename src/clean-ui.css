@@ -1,0 +1,74 @@
+/* Quiet surfaces keep the moving galaxy and live numbers in focus. */
+:root { --line: #c7d7e51a; --gold: #d9c29d; --cyan: #a6d6df; }
+body { background: #080e17; }
+.topbar { border-color: var(--line); }
+.brand { font-size: 18px; font-weight: 700; letter-spacing: -.04em; }
+.brand b { color: #b5c8d6; }
+.help-button { border-color: var(--line); background: transparent; }
+.viewport-wrap { border: 1px solid #c7d7e524; border-radius: 12px; box-shadow: none; }
+.frame-corner { display: none; }
+.control-panel { background: #0e1722; border-color: var(--line); border-radius: 12px; box-shadow: none; }
+.field-label { font-size: 14px; }
+textarea { background: #0a111b; border-color: #c7d7e524; border-radius: 8px; }
+textarea:focus { border-color: #9ebecf; box-shadow: none; }
+.primary-button { border: 1px solid #cbdae4; background: #cbdae4; color: #142230; border-radius: 8px; box-shadow: none; font-weight: 600; }
+.primary-button:hover:not(:disabled) { filter: brightness(1.05); transform: none; }
+.secondary-button, .result-reset { border-color: #c7d7e526; border-radius: 8px; color: #b3c4d0; }
+.panel-title h2 { font-size: 16px; font-weight: 600; }
+.panel-title svg { stroke: #a4b8c7; width: 20px; height: 20px; }
+.panel-title > span { border: 0; background: #c7d7e50a; border-radius: 6px; }
+.leaderboard li { border: 0; border-bottom: 1px solid #c7d7e514; border-radius: 0; background: transparent; box-shadow: none; }
+.leaderboard li.is-leader { background: #c7d7e507; border-color: #c7d7e514; box-shadow: none; }
+.leaderboard li.is-focus { background: #a6d6df0c; border-color: #c7d7e514; box-shadow: inset 2px 0 #a6d6df; }
+.leaderboard li .rank, .leaderboard li[data-podium] .rank { background: none; border: 0; box-shadow: none; }
+.leaderboard .racer-name { font-weight: 500; }
+.racer-score b { font-weight: 600; }
+.is-leader .racer-score b { color: #e9edf2; }
+.marble-swatch, .is-focus:not(.is-done) .racer-state { box-shadow: none; }
+.score-track { opacity: .35; }
+.score-track i { opacity: .65; }
+.leaderboard .empty-row { border: 0; background: transparent; }
+.race-hud { gap: 18px; }
+.hud-chip strong { font-weight: 400; }
+.hud-label { color: #b1c1ce; }
+.flight-telemetry { background: #09131fe6; border: 1px solid #c7d7e51c; border-radius: 10px; padding: 8px 12px; gap: 9px; text-shadow: none; }
+.flight-telemetry .focus-rank { width: 40px; height: 46px; filter: none; }
+.flight-telemetry .focus-rank b { font-size: 20px; }
+.flight-telemetry .focus-name-row strong { font-size: 17px; font-weight: 600; }
+.focus-copy { gap: 5px; }
+.power-track, .power-track i { box-shadow: none; }
+.flight-progress i { box-shadow: none; }
+.event-clip { border-radius: 9px; }
+.event-feed .event-card { border: 1px solid #c7d7e51f; border-radius: 9px; background: #101c2aee; box-shadow: none; gap: 10px; padding: 11px 12px 13px; }
+.event-feed .event-emblem { width: 28px; height: 28px; border: 0; background: transparent; font-size: 25px; text-shadow: none; animation: none; }
+.event-emblem:after { display: none; }
+.event-card:before { box-shadow: none; top: 12px; bottom: 12px; }
+.event-feed .event-reward b { font-size: 21px; font-weight: 600; }
+.event-feed .is-rare .event-card { border-color: #ddc38d66; background: #202331f2; box-shadow: none; }
+.event-feed .is-rare .event-emblem { box-shadow: none; animation: none; }
+.event-life { height: 2px; }
+.winner-banner { background: #030913bc; backdrop-filter: blur(8px); }
+.result-card { background: #111d2b; border: 1px solid #c7d7e533; border-radius: 16px; box-shadow: 0 20px 70px #0007; }
+.result-card:before, .winner-emblem:before { display: none; }
+.winner-emblem { width: 44px; height: 44px; color: #d9c29d; margin-bottom: 10px; }
+.winner-emblem svg circle:first-child { stroke-dasharray: none; }
+.winner-label { letter-spacing: .15em; padding-left: .15em; color: #aebecb; }
+.result-hero h2 { font-size: 32px; font-weight: 600; letter-spacing: -.04em; }
+.winner-total, .winner-stats b { color: #e6edf3; }
+.winner-stats { background: transparent; border-color: #c7d7e51a; }
+.winner-stats > div + div { border-color: #c7d7e51a; }
+.winner-podium li { border-color: #c7d7e514; }
+.podium-rank { border: 0; border-radius: 6px; background: #c7d7e508; }
+.game-guide { border-color: #c7d7e52e; background: #111d2b; border-radius: 16px; box-shadow: 0 20px 70px #0007; }
+.guide-visual { background: #0b1420; border-color: #c7d7e514; }
+.guide-roster > span { background: #182736; box-shadow: none; }
+@media (max-width: 599px) {
+  .flight-telemetry { padding: 6px 9px; }
+  .flight-telemetry .focus-rank { width: 36px; height: 42px; }
+  .flight-telemetry .focus-rank b { font-size: 18px; }
+  .flight-telemetry .focus-name-row strong { font-size: 15px; }
+  .event-feed .event-card { padding: 7px 9px 9px; border: 0; background: transparent; }
+  .event-feed .event-emblem { width: 24px; height: 24px; font-size: 21px; }
+  .event-feed .event-reward b { font-size: 16px; }
+  .event-feed .is-rare .event-card { background: #202331; }
+}

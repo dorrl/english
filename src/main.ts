@@ -10,18 +10,20 @@ import { Sound } from './audio';
 import { initTutorial } from './tutorial';
 import { EventFeed } from './special-events';
 import { impactFeedback } from './presentation';
+import { BallSpeedEffect } from './ball-speed-effect';
 import { RankingMotion } from './ranking';
 import { CameraDirector } from './camera-director';
 import { BAT_TIMING, batCharge, sampleBatPose } from './bat-motion';
 import { BatSwingTrail } from './bat';
-import { STEP, FINISH_DISTANCE, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, PLANET_POINTS, additionalPoints, centerAcceleration, compareFlights, contactTime, createFlight, distancePoints, flightGravity, launchFlight, magnetRange, parseNames, scoreFlight, survivalPoints, stepFlights } from './simulation';
+import { STEP, FINISH_DISTANCE, GRAVITY_FIRST_RAMP_START, GRAVITY_RAMP_START, PLANET_POINTS, additionalPoints, centerAcceleration, compareFlights, contactTime, createFlight, distancePoints, flightGravity, forwardSpeed, launchFlight, magnetRange, parseNames, scoreFlight, survivalPoints, stepFlights } from './simulation';
 import type { Flight } from './simulation';
 import './style.css';
 import './device-layout.css';
 import './tutorial-motion.css';
 import './focus-hud.css';
+import './clean-ui.css';
 
-type Racer = Flight & { color: number; mesh: THREE.Mesh; tag: THREE.Sprite; trail: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>; trailPoints: Float32Array; row: HTMLLIElement };
+type Racer = Flight & { color: number; mesh: THREE.Mesh; speedFx: BallSpeedEffect; tag: THREE.Sprite; trail: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>; trailPoints: Float32Array; row: HTMLLIElement };
 type Phase = 'idle' | 'countdown' | 'windup' | 'swing' | 'followthrough' | 'flight' | 'settle' | 'results';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const viewport = $('viewport'), namesInput = $<HTMLTextAreaElement>('names');
@@ -49,6 +51,7 @@ const cameraPosition = new THREE.Vector3(16, 11, -30), cameraTarget = new THREE.
 const desiredPosition = new THREE.Vector3(), desiredTarget = new THREE.Vector3(), projection = new THREE.Vector3();
 const cameraOffsets = [[8, 12.5, -34], [-7, 12.8, -34], [4, 13.5, -33], [10, 12.5, -32]];
 const batSweetSpot = new THREE.Vector3();
+const speedWhite = new THREE.Color(0xe5f8ff);
 const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4(), cullSphere = new THREE.Sphere();
 let renderer: THREE.WebGLRenderer, composer: EffectComposer, arena: Arena, effects: Effects;
 let batTrail: BatSwingTrail;
@@ -80,7 +83,8 @@ function makeTag(name: string, color: number) {
 function clearRacers() {
   rankingMotion.clear();
   for (const racer of racers) {
-    scene.remove(racer.mesh, racer.tag, racer.trail);
+    scene.remove(racer.mesh, racer.tag, racer.trail, racer.speedFx);
+    racer.speedFx.dispose();
     // Arena geometries are shared; only racer-owned materials/textures are released.
     racer.mesh.traverse(object => {
       if (object instanceof THREE.Mesh || object instanceof THREE.Sprite) {
@@ -105,7 +109,8 @@ function createRoster() {
     row.querySelector<HTMLElement>('.racer-name')!.textContent = name;
     row.style.setProperty('--ball', hex(color));
     row.title = name; $('leaderboard').append(row);
-    racers.push({ ...flight, color, mesh, tag, trail, trailPoints, row }); scene.add(mesh, tag, trail);
+    const speedFx = new BallSpeedEffect(color, arena.glow);
+    racers.push({ ...flight, color, mesh, speedFx, tag, trail, trailPoints, row }); scene.add(mesh, tag, trail, speedFx);
   });
   updateLeaderboard();
 }
@@ -253,6 +258,9 @@ function drawRacers(dt: number) {
     magnetAura.scale.setScalar(1 + Math.min(4, racer.magnetLevel) * .14);
     magnetAura.rotation.set(.7, showTime * .8, .35);
     racer.mesh.visible = !racer.done;
+    const intensity = racer.speedFx.update(racer, showTime, reducedMotion);
+    racer.trail.material.opacity = .35 + intensity * .5;
+    racer.trail.material.color.set(racer.color).lerp(speedWhite, intensity * .35);
     racer.tag.position.copy(racer.mesh.position); racer.tag.position.y += racer === focus ? 1.25 : .95;
     const labelHeight = camera.position.distanceTo(racer.mesh.position) * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 34 / Math.max(1, viewport.clientHeight);
     racer.tag.scale.set(labelHeight * 512 / 112, labelHeight, 1);
@@ -281,7 +289,7 @@ function updateCamera(dt: number) {
     desiredTarget.set(x, y + .5, z + 9);
     if (impactFocusLife > 0 && Math.hypot(impactFocus.x - x, impactFocus.y - y, impactFocus.z - z) < 60) desiredTarget.lerp(impactFocus, .1);
     desiredPosition.set(x + offset[0] * (narrow ? .6 : 1), y + offset[1], z + offset[2] - (narrow ? 10 : 0));
-    fov = 56 + Math.min(5, selected.velocity.z / 32);
+    fov = 56 + Math.min(5, forwardSpeed(selected) / 32);
     $('focus-name').textContent = selected.name; $('focus-score').textContent = `${number(scoreFlight(selected))}점`;
     $('focus-distance').textContent = `${number(distancePoints(selected.distance))}m`;
     const rank = 1 + racers.filter(racer => compareFlights(racer, selected) < 0).length;
@@ -303,7 +311,7 @@ function updateCamera(dt: number) {
   } else {
     desiredPosition.copy(cameraPosition); desiredTarget.copy(cameraTarget);
   }
-  const trackingRate = selected ? Math.max(reducedMotion ? 3 : 4.2, selected.velocity.z / 28) : (reducedMotion ? 3 : 4.2);
+  const trackingRate = selected ? Math.max(reducedMotion ? 3 : 4.2, forwardSpeed(selected) / 28) : (reducedMotion ? 3 : 4.2);
   const ease = 1 - Math.exp(-dt * (struck ? trackingRate : 2.1));
   cameraPosition.lerp(desiredPosition, ease); cameraTarget.lerp(desiredTarget, ease);
   camera.position.copy(cameraPosition);
@@ -320,7 +328,7 @@ function updateTarget(racer: Racer | null) {
   if (!racer || !['flight', 'followthrough'].includes(phase)) { reticle.classList.add('hidden'); return; }
   // A short collision-course preview creates anticipation; it never steers a ball.
   const horizon = .7, p = racer.position, v = racer.velocity;
-  const ahead = { x: p.x + v.x * horizon + (racer.gravity.x + centerAcceleration(p.x)) * .5 * horizon * horizon, y: p.y + v.y * horizon + (racer.gravity.y - flightGravity(racer)) * .5 * horizon * horizon, z: p.z + v.z * horizon + racer.gravity.z * .5 * horizon * horizon };
+  const ahead = { x: p.x + v.x * horizon + (racer.gravity.x + centerAcceleration(p.x)) * .5 * horizon * horizon, y: p.y + v.y * horizon + (racer.gravity.y - flightGravity(racer)) * .5 * horizon * horizon, z: p.z + forwardSpeed(racer) * horizon + racer.gravity.z * (1 + racer.catchUp) * .5 * horizon * horizon };
   let closest: Planet | null = null, earliest = 1;
   for (const planet of arena.planets) {
     if (planet.destroyed || planet.position.z < p.z + 3 || planet.position.z > ahead.z + planet.radius) continue;
